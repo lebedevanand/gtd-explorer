@@ -1,20 +1,21 @@
 import {demoEvents} from './demo.js';
-import {filterEvents,summarize,hasCoordinates,dateLabel as formatDate,clusterEvents,bubbleScale,bubbleRadius,citationLinks} from './model.js';
-
-import {language,setLanguage,t,countryLabel,cityLabel,fieldDescription} from './i18n.js';
+import {filterEvents,summarize,hasCoordinates,dateLabel,clusterEvents,bubbleScale,bubbleRadius,citationLinks} from './model.js';
 
 const $ = id => document.getElementById(id);
-let savedLanguage;try {savedLanguage=localStorage.getItem('gtd-language');} catch {}
-const urlLanguage=new URLSearchParams(location.search).get('lang');
-setLanguage(['ru','en'].includes(urlLanguage)?urlLanguage:savedLanguage||'ru');
-const dateLabel=event=>formatDate(event,language);
-const fmt = n => n === null ? t('noData') : n.toLocaleString(language);
+const fmt = n => n === null ? 'No data' : n.toLocaleString('en');
 const pageSize = 8;
 const state = {from:0, to:0, countries:new Set(), page:0, metric:'fatalities'};
 let mode = 'loading', manifest, countries = [], years = [], ready = false;
 let pageEvents = [], currentSummary, map, layers, renderVersion = 0, mapVersion = 0;
-let resultController, mapController, detailController, activeEvent, activeGroup;
+let resultController, mapController, detailController;
 const demoSorted = [...demoEvents].sort(sortEvents);
+const specificityLabels = {
+ 1:'Coordinates identify the city, village, or town, generally its centroid.',
+ 2:'Coordinates identify the centroid of the smallest known subnational region; settlement coordinates were unavailable.',
+ 3:'The event was outside a settlement. Coordinates identify the centroid of the smallest known subnational region.',
+ 4:'Coordinates identify the center of a first-order administrative region.',
+ 5:'GTD could not identify a first-order region; coordinates are unknown.'
+};
 function sortEvents(a,b) { return b.year-a.year || b.month-a.month || b.day-a.day || b.id.localeCompare(a.id); }
 function node(tag,text,className) {
  const element = document.createElement(tag);
@@ -31,7 +32,7 @@ async function request(path,signal) {
  const response = await fetch(path,{signal,cache:'no-store'});
  if(!response.ok) {
   const data = await response.json().catch(()=>({}));
-  throw new Error(language==='en'&&data.error?data.error:t('requestError',{status:response.status}));
+  throw new Error(data.error || `Request failed (${response.status})`);
  }
  return response.json();
 }
@@ -43,7 +44,7 @@ function demoResults(page=state.page) {
 }
 function renderCountries() {
  const search = $('country-search').value.trim().toLowerCase();
- const visible = countries.filter(c=>c.name.toLowerCase().includes(search)||countryLabel(c.name,'ru').toLowerCase().includes(search)).sort((a,b)=>countryLabel(a.name).localeCompare(countryLabel(b.name),language));
+ const visible = countries.filter(c=>c.name.toLowerCase().includes(search));
  $('countries').replaceChildren(...visible.map(country=>{
   const label = node('label',undefined,'country');
   const input = document.createElement('input');
@@ -53,21 +54,21 @@ function renderCountries() {
    else state.countries.delete(String(country.code));
    state.page = 0;render();
   });
-  label.append(input,node('span',countryLabel(country.name)),node('small',fmt(country.count)));
+  label.append(input,node('span',country.name),node('small',fmt(country.count)));
   return label;
  }));
  $('country-empty').hidden = visible.length > 0;
 }
 function updateSelection() {
  $('from-range').value = state.from;$('to-range').value = state.to;
- $('country-count').textContent = state.countries.size ? t('selected',{n:fmt(state.countries.size)}) : t('all');
- const selected = countries.filter(c=>state.countries.has(String(c.code))).map(c=>countryLabel(c.name)).join(', ') || t('allCountries');
+ $('country-count').textContent = state.countries.size ? `${state.countries.size} selected` : 'All';
+ const selected = countries.filter(c=>state.countries.has(String(c.code))).map(c=>c.name).join(', ') || 'All countries';
  $('selection').textContent = `${selected} · ${state.from===state.to ? state.from : `${state.from}–${state.to}`}`;
  $('selection').title = $('selection').textContent;
  if(mode==='gtd') {
   const notes = [];
-  if(state.from<=1993 && state.to>=1993) notes.push(t('gapLabel'));
-  if(state.from<=2021 && state.to>=2021) notes.push(t('partialLabel'));
+  if(state.from<=1993 && state.to>=1993) notes.push('1993: no event-level coverage');
+  if(state.from<=2021 && state.to>=2021) notes.push('2021: January–June only');
   $('coverage-warning').textContent = notes.join(' · ');
   $('coverage-warning').hidden = !notes.length;
  }
@@ -75,13 +76,13 @@ function updateSelection() {
 function updateSummary(summary) {
  currentSummary = summary;
  const gapOnly = mode==='gtd' && state.from===1993 && state.to===1993;
- $('total').textContent = gapOnly ? t('noCoverage') : fmt(summary.count);
+ $('total').textContent = gapOnly ? 'No coverage' : fmt(summary.count);
  $('total').classList.toggle('non-numeric',gapOnly);
- $('unmapped').textContent = gapOnly ? t('gapRecords') : t('unmapped',{n:fmt(summary.unmapped)});
+ $('unmapped').textContent = gapOnly ? '1993 records are unavailable' : `${fmt(summary.unmapped)} without coordinates`;
  for(const key of ['fatalities','injuries']) {
   $(key).textContent = fmt(summary[key].value);
   $(key).classList.toggle('non-numeric',summary[key].value===null);
-  $(`${key}-note`).textContent = gapOnly ? t('noCoverage') : t('knownSum',{n:fmt(summary[key].unknown)});
+  $(`${key}-note`).textContent = gapOnly ? 'No event-level coverage' : `Sum of known values · ${fmt(summary[key].unknown)} unknown`;
  }
  $('fit').disabled = !map || summary.count===summary.unmapped;
 }
@@ -89,12 +90,12 @@ function renderList(result) {
  pageEvents = result.events;state.page = result.page;
  $('event-rows').replaceChildren(...pageEvents.map(event=>{
   const row = node('tr');
-  const values = [dateLabel(event),cityLabel(event.city),countryLabel(event.country),fmt(event.fatalities),fmt(event.injuries),event.id];
+  const values = [dateLabel(event),event.city,event.country,fmt(event.fatalities),fmt(event.injuries),event.id];
   values.forEach((value,index)=>{
    const cell = node('td');
    if(index===1) {
     const button = node('button',value);
-    button.setAttribute('aria-label',t(mode==='demo'?'viewDemoEvent':'viewEvent',{id:event.id,city:cityLabel(event.city)}));
+    button.setAttribute('aria-label',`View ${mode==='demo'?'fictional ':''}event ${event.id} in ${event.city}`);
     button.addEventListener('click',()=>openEvent(event));cell.append(button);
    } else cell.textContent = value;
    if(index===3 || index===4) cell.className = 'numeric';
@@ -103,12 +104,12 @@ function renderList(result) {
   return row;
  }));
  const gapOnly = mode==='gtd' && state.from===1993 && state.to===1993;
- $('empty-title').textContent = gapOnly ? t('gapTitle') : t('noEvents');
- $('empty-note').textContent = gapOnly ? t('gapNote') : t('tryFilters');
+ $('empty-title').textContent = gapOnly ? 'No event-level coverage for 1993' : 'No events found';
+ $('empty-note').textContent = gapOnly ? 'GTD records for this year are unavailable. This does not mean no attacks occurred.' : 'Try another period or country selection.';
  $('empty').hidden = result.summary.count!==0;
- $('list-count').textContent = t(mode==='demo'?'demoListCount':'listCount',{n:fmt(result.summary.count)});
- if(gapOnly) $('list-count').textContent = t('noCoverage');
- $('page-label').textContent = gapOnly ? t('unavailableYear') : result.summary.count ? t('page',{page:fmt(result.page+1),pages:fmt(result.pages)}) : t('listCount',{n:fmt(0)});
+ $('list-count').textContent = `${fmt(result.summary.count)} ${mode==='demo'?'fictional ':''}events`;
+ if(gapOnly) $('list-count').textContent = 'No coverage';
+ $('page-label').textContent = gapOnly ? 'Year unavailable' : result.summary.count ? `Page ${fmt(result.page+1)} of ${fmt(result.pages)}` : '0 events';
  $('prev').disabled = result.page===0;
  $('next').disabled = result.page>=result.pages-1;
 }
@@ -117,9 +118,9 @@ async function render() {
  resultController?.abort();mapController?.abort();++mapVersion;
  resultController = new AbortController();
  layers?.clearLayers();
- $('size-legend').textContent=t('loadingMap');
+ $('size-legend').textContent='Loading map…';
  updateSelection();
- $('results-status').textContent = t('loadingResults');
+ $('results-status').textContent = 'Loading filtered results…';
  $('results-status').classList.remove('error');
  $('event-rows').replaceChildren();$('empty').hidden = true;
  for(const id of ['total','fatalities','injuries']) $(id).textContent = '…';
@@ -128,84 +129,78 @@ async function render() {
   const result = mode==='demo' ? demoResults() : await request(`/api/events?${queryParams()}`,resultController.signal);
   if(version!==renderVersion) return;
   updateSummary(result.summary);renderList(result);
-  $('results-status').textContent = mode==='demo' ? t('demoStatus') : t('localStatus');
+  $('results-status').textContent = mode==='demo' ? 'Demonstration dataset · fictional records' : 'Local GTD dataset · filters apply to the full selection';
   await renderMap();
  } catch(error) {
   if(error.name==='AbortError' || version!==renderVersion) return;
-  $('results-status').textContent = t('resultsError',{error:error.message});
+  $('results-status').textContent = `Could not load results: ${error.message}. Change a filter or use Reset to retry.`;
   $('results-status').classList.add('error');
   for(const id of ['total','fatalities','injuries']) $(id).textContent = '—';
-  $('list-count').textContent = t('resultsUnavailable');$('page-label').textContent = '';
+  $('list-count').textContent = 'Results unavailable';$('page-label').textContent = '';
  }
 }
 async function openEvent(event) {
- activeEvent=event;activeGroup=null;
  detailController?.abort();detailController=new AbortController();
  const body = $('event-detail');body.replaceChildren();
- const title = node('h2',`${cityLabel(event.city)}, ${countryLabel(event.country)}`);
+ const title = node('h2',`${event.city}, ${event.country}`);
  const stats = node('div',undefined,'detail-stats');
- for(const [label,key] of [[t('fatalities'),'fatalities'],[t('injuries'),'injuries']]) {
+ for(const [label,key] of [['Fatalities','fatalities'],['Injuries','injuries']]) {
   const box = node('div');box.append(node('strong',fmt(event[key])),node('span',label));stats.append(box);
  }
  const note = hasCoordinates(event)
-  ? mode==='demo' ? t('syntheticPoint') : (([1,2,3,4,5].includes(event.specificity)?t('precision'+event.specificity):t('precisionUnknown')))
-  : t('noCoordinates');
- body.append(node('span',mode==='demo'?t('fictionalBadge'):t('gtdBadge'),'badge'),title,
+  ? mode==='demo' ? 'Illustrative settlement coordinates, not an actual attack location.' : (specificityLabels[event.specificity] || 'Coordinate precision is not recorded. Do not interpret this point as an exact attack site.')
+  : 'No usable coordinates. This record remains in the event list and summary.';
+ body.append(node('span',mode==='demo'?'FICTIONAL EVENT':'GTD RECORD','badge'),title,
   node('p',`${dateLabel(event)} · ${event.id}`),stats);
  const description=node('section',undefined,'event-description');
- description.append(node('h3',t('happened')),node('p',mode==='demo'?t('demoDescription'):t('loadingDescription'),'description-status'));
+ description.append(node('h3','What happened'),node('p',mode==='demo'?'Description unavailable for this fictional fixture.':'Loading description…','description-status'));
  body.append(description,node('p',note));
- if(event.approxdate) body.append(node('p',t('approximateDate',{date:event.approxdate})));
- body.append(node('p',mode==='demo'?t('syntheticNote'):t('countsNote')));
+ if(event.approxdate) body.append(node('p',`Approximate date information from GTD: ${event.approxdate}`));
+ body.append(node('p',mode==='demo'?'Synthetic record for testing only.':'Fatalities and injuries include attackers. Classification and counts follow GTD.'));
  if(!$('event-dialog').open) $('event-dialog').showModal();
  if(mode==='demo')return;
  try {
   const detail=await request(`/api/event/${encodeURIComponent(event.id)}`,detailController.signal);
   if(!description.isConnected||!$('event-dialog').open)return;
-  const original=detail.description;
-  const text=original.kind==='fields'&&language==='ru'?fieldDescription(detail,original.fields||{}):
-   original.kind==='unavailable'?t(original.reason==='not-imported'?'importDescriptions':'noDescriptionCountry'):original.text;
-  const value={...original,text,excerpt:original.kind==='gtd'?original.excerpt:text};
-  const textLanguage=value.kind==='gtd'?'en':language;
-  description.replaceChildren(node('h3',t('happened')),node('span',t(value.kind==='gtd'?'gtdDescription':value.kind==='fields'?'fieldsDescription':'descriptionUnavailable'),'description-label'));
+  const value=detail.description;
+  description.replaceChildren(node('h3','What happened'),node('span',value.label,'description-label'));
   if(value.excerpt&&value.excerpt!==value.text) {
-   const preview=node('p',value.excerpt,'description-excerpt');preview.lang=textLanguage;description.append(preview);
-   const more=node('details',undefined,'full-description'),toggle=node('summary',t('readFull'));
-   const full=node('p',value.text);full.lang=textLanguage;more.append(toggle,full);
-   more.addEventListener('toggle',()=>{preview.hidden=more.open;toggle.textContent=more.open?t('showLess'):t('readFull');});
+   const preview=node('p',value.excerpt,'description-excerpt');description.append(preview);
+   const more=node('details',undefined,'full-description'),toggle=node('summary','Read full description');
+   more.append(toggle,node('p',value.text));
+   more.addEventListener('toggle',()=>{preview.hidden=more.open;toggle.textContent=more.open?'Show less':'Read full description';});
    description.append(more);
-  } else {const paragraph=node('p',value.text,'description-excerpt');paragraph.lang=textLanguage;description.append(paragraph);}
+  } else description.append(node('p',value.text,'description-excerpt'));
   if(value.sources.length) {
-   const sources=node('details',undefined,'event-sources');sources.append(node('summary',t('sources',{n:fmt(value.sources.length)})));
+   const sources=node('details',undefined,'event-sources');sources.append(node('summary',`Sources · ${value.sources.length}`));
    const list=node('ol');
    value.sources.forEach(citation=>{
     const item=node('li');item.append(node('p',citation));
     citationLinks(citation).forEach(url=>{
-     const link=node('a',t('openSource'));link.href=url;link.target='_blank';link.rel='noopener noreferrer';item.append(link);
+     const link=node('a','Open source ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';item.append(link);
     });list.append(item);
    });
    sources.append(list);description.append(sources);
-  } else if(value.kind!=='unavailable')description.append(node('p',t('noSources'),'source-note'));
+  } else if(value.kind!=='unavailable')description.append(node('p','No source citation is recorded for this event.','source-note'));
  } catch(error) {
   if(error.name==='AbortError'||!description.isConnected)return;
-  description.replaceChildren(node('h3',t('happened')),node('p',t('descriptionError'),'description-status'));
-  const retry=node('button',t('retry'));retry.addEventListener('click',()=>openEvent(event));description.append(retry);
+  description.replaceChildren(node('h3','What happened'),node('p','Could not load the description.','description-status'));
+  const retry=node('button','Retry');retry.addEventListener('click',()=>openEvent(event));description.append(retry);
  }
 }
 async function openGroup(group,params) {
  if(group.event) {openEvent(group.event);return;}
- activeEvent=null;activeGroup={group,params};
  const dialog = $('event-dialog');const detail = $('event-detail');
- detail.replaceChildren(node('h2',t(mode==='demo'?'demoGroupCount':'groupCount',{n:fmt(group.count)})),
-  node('p',t('groupNote')),
-  node('p',t('groupSummary',{fatalities:fmt(group.fatalities.value),fu:fmt(group.fatalities.unknown),injuries:fmt(group.injuries.value),iu:fmt(group.injuries.unknown)}),'group-summary'));
+ detail.replaceChildren(node('h2',`${fmt(group.count)} ${mode==='demo'?'fictional ':''}events`),
+  node('p','Grouped by map proximity. Counts include attackers.'),
+  node('p',`${fmt(group.fatalities.value)} known fatalities · ${fmt(group.fatalities.unknown)} unknown records. ${fmt(group.injuries.value)} known injuries · ${fmt(group.injuries.unknown)} unknown records.`,'group-summary'));
  const list = node('div');const navigation = node('div',undefined,'group-pagination');
- const prev = node('button',t('previous')),next = node('button',t('next')),label = node('span');
+ const prev = node('button','← Previous'),next = node('button','Next →'),label = node('span');
  navigation.append(prev,label,next);detail.append(list,navigation);
- if(!dialog.open)dialog.showModal();
+ dialog.showModal();
  let page = 0;
  const load = async()=>{
-  list.textContent = t('loadingEvents');prev.disabled = next.disabled = true;
+  list.textContent = 'Loading events…';prev.disabled = next.disabled = true;
   try {
    let result;
    if(mode==='demo') {
@@ -219,12 +214,12 @@ async function openGroup(group,params) {
    if(!dialog.open || !list.isConnected) return;
    page = result.page;
    list.replaceChildren(...result.events.map(event=>{
-    const p = node('p');const b = node('button',`${dateLabel(event)} · ${cityLabel(event.city)} · ${event.id}`);
+    const p = node('p');const b = node('button',`${dateLabel(event)} · ${event.city} · ${event.id}`);
     b.addEventListener('click',()=>openEvent(event));p.append(b);return p;
    }));
    label.textContent = `${fmt(page+1)} / ${fmt(result.pages)}`;
    prev.disabled = page===0;next.disabled = page>=result.pages-1;
-  } catch(error) { list.textContent = t('groupError',{error:error.message}); }
+  } catch(error) { list.textContent = `Could not load this group: ${error.message}`; }
  };
  prev.addEventListener('click',()=>{page--;load();});next.addEventListener('click',()=>{page++;load();});
  await load();
@@ -246,7 +241,7 @@ async function renderMap() {
   if(version!==mapVersion) return;
   layers.clearLayers();$('map-data-error').hidden = true;
   const scale = bubbleScale(groups,state.metric);
-  $('legend-title').textContent = t(state.metric==='fatalities'?'knownFatalities':'knownInjuries');
+  $('legend-title').textContent = `Known ${state.metric}`;
   const legendValues = groups.some(g=>g[state.metric].value>0) ? [.01,.04,.16].map(f=>Math.max(1,Math.round(scale.maximum*f))) : [];
   $('size-legend').replaceChildren(...[...new Set(legendValues)].map(value=>{
    const item=node('span');const circle=node('i');
@@ -254,7 +249,7 @@ async function renderMap() {
    circle.style.width=circle.style.height=`${diameter}px`;
    item.append(circle,node('span',fmt(value)));return item;
   }));
-  if(!legendValues.length) $('size-legend').textContent=groups.length?t('noPositive'):t('noMapped');
+  if(!legendValues.length) $('size-legend').textContent=groups.length?'No positive known totals':'No mapped events';
   for(const group of groups) {
    const metric=group[state.metric],value=metric.value;
    const marker=L.circleMarker([group.lat,group.lng],{
@@ -263,13 +258,13 @@ async function renderMap() {
     dashArray:value===null?'3 3':null
    }).addTo(layers);
    const tooltip=node('div');
-   tooltip.append(node('strong',group.event?`${cityLabel(group.event.city)} · ${dateLabel(group.event)}`:t('groupCount',{n:fmt(group.count)})),
-    node('div',t('tooltipMetric',{value:fmt(value),metric:t(state.metric),n:fmt(metric.unknown)})));
+   tooltip.append(node('strong',group.event?`${group.event.city} · ${dateLabel(group.event)}`:`${fmt(group.count)} grouped events`),
+    node('div',`${fmt(value)} known ${state.metric} · ${fmt(metric.unknown)} unknown records`));
    marker.bindTooltip(tooltip,{direction:'top'}).on('click',()=>openGroup(group,params));
   }
  } catch(error) {
   if(error.name==='AbortError' || version!==mapVersion) return;
-  layers.clearLayers();$('map-data-error').textContent = t('mapEventsError',{error:error.message});$('map-data-error').hidden = false;
+  layers.clearLayers();$('map-data-error').textContent = `Could not load map events: ${error.message}. The event list remains available.`;$('map-data-error').hidden = false;
  }
 }
 function reset() {
@@ -282,48 +277,45 @@ function setupMap() {
  try {
   if(!window.L) throw new Error('Map library unavailable');
   map = L.map('map',{preferCanvas:false,minZoom:1,maxZoom:12,worldCopyJump:true,zoomControl:false}).setView([18,15],mobileLayout.matches?1:2);
-  L.control.zoom({position:'topright',zoomInTitle:t('zoomIn'),zoomOutTitle:t('zoomOut')}).addTo(map);
+  L.control.zoom({position:'topright'}).addTo(map);
   layers = L.layerGroup().addTo(map);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map)
-   .on('tileerror',()=>{$('map-error').textContent = t('tileError');$('map-error').hidden = false;});
+   .on('tileerror',()=>{$('map-error').textContent = 'Some map tiles could not load. Filters and the event list remain available.';$('map-error').hidden = false;});
   map.on('moveend',renderMap);
- } catch(error) {$('map-error').textContent = t('mapUnavailable');$('map-error').hidden = false;}
+ } catch(error) {$('map-error').textContent = 'Map unavailable. Check your connection or explore the event list below.';$('map-error').hidden = false;}
 }
 function setDatasetText() {
  if(mode==='demo') {
-  document.title = t('demoTitle');
-  $('dataset-badge').textContent = t('demoBadge');
-  $('dataset-title').textContent = t('demoHeading');
-  $('dataset-description').textContent = t('demoExplanation');
-  $('coverage-label').textContent = t('demoCoverage');
-  $('record-label').textContent = t('demoRecords');
-  $('map-source').textContent = t('demoSource');
-  $('map').setAttribute('aria-label',t('demoMap'));
-  $('info-content').replaceChildren(node('p',t('sourceContext'),'eyebrow'),node('h2',t('demoInfo')),
-   node('p',t('demoInfoText')),node('p',t('bubbleMethod')),node('p',t('sourceDescriptionNote')));
+  document.title = 'GTD Explorer · Demonstration';
+  $('dataset-badge').textContent = 'DEMONSTRATION';
+  $('dataset-title').textContent = 'Fictional events. Real interactions.';
+  $('dataset-description').textContent = 'No GTD records in this mode. Locations and counts are synthetic examples.';
+  $('coverage-label').textContent = 'Demo coverage: 2014–2023';
+  $('record-label').textContent = '24 fictional records · 16 countries';
+  $('map-source').textContent = 'Synthetic dataset · Counts include all people in each example';
+  $('map').setAttribute('aria-label','Interactive map of fictional events');
   return;
  }
- document.title = t('localTitle');
- $('dataset-badge').textContent = t('localBadge');
- $('dataset-title').textContent = t('localHeading');
- $('dataset-description').textContent = t('localExplanation');
- $('coverage-label').textContent = t('localCoverage');
- $('record-label').textContent = t('localRecords',{records:fmt(manifest.record_count),countries:fmt(manifest.country_count)});
- $('map').setAttribute('aria-label',t('localMap'));
- $('map-source').textContent = t('localSource');
- $('page-edition').textContent = t('localEdition');
- $('info-content').replaceChildren(node('p',t('sourceContext'),'eyebrow'),node('h2',t('datasetInfo')),
-  node('p',t('datasetIntro',{n:fmt(manifest.record_count)})),
-  node('h3',t('coverageInfo')),node('p',t('coverageText')),
-  node('p',t('missingText',{n:fmt(manifest.quality.missing_coordinates||0)})),
-  node('p',t('bubbleMethod')),
-  node('h3',t('sourceUsage')),node('p','START (National Consortium for the Study of Terrorism and Responses to Terrorism). (2022). Global Terrorism Database, 1970–2020 [data file]. January–June 2021 supplement: globalterrorismdb_2021Jan-June_1222dist.xlsx.'),
-  node('p',t('usageText')));
- $('info-content').append(node('p',t('sourceDescriptionNote')));
- const link = node('a',t('sourceLink'));link.href = 'https://www.start.umd.edu/data-tools/GTD';link.target = '_blank';link.rel = 'noopener';$('info-content').append(link);
+ document.title = 'GTD Explorer · Local dataset';
+ $('dataset-badge').textContent = 'LOCAL GTD DATA';
+ $('dataset-title').textContent = 'Historical records. In context.';
+ $('dataset-description').textContent = '1970–2020 + January–June 2021. Includes a coverage gap for 1993.';
+ $('coverage-label').textContent = 'GTD coverage: 1970–Jun 2021';
+ $('record-label').textContent = `${fmt(manifest.record_count)} records · ${manifest.country_count} country codes`;
+ $('map').setAttribute('aria-label','Interactive map of GTD events');
+ $('map-source').textContent = 'Source: START / University of Maryland · Counts include attackers';
+ $('page-edition').textContent = '/ Local dataset';
+ $('info-content').replaceChildren(node('p','SOURCE & CONTEXT','eyebrow'),node('h2','About this dataset'),
+  node('p',`${fmt(manifest.record_count)} GTD records from the May 2022 main release and the December 2022 January–June 2021 supplement. Original files are kept unchanged, and only fields needed for this explorer are imported.`),
+  node('h3','Coverage and missing values'),node('p','The main data covers 1970–2020, excluding 1993. The 2021 supplement covers January–June only; it is not a complete year. Differences in data collection methods affect comparisons over time.'),
+  node('p',`${fmt(manifest.quality.missing_coordinates || 0)} records lack coordinates. They remain in summaries and the event list. Blank fatality and injury values stay unknown; totals sum known values and display unknown counts. These measures include attackers.`),
+  node('p','Coordinates may identify settlement or administrative-region centroids. Marker locations are not necessarily exact attack sites. Bubble area represents the selected sum of known fatalities or injuries, including attackers. Groups aggregate nearby events. The scale adjusts to the map view; use the legend and tooltips to compare values. Small positive totals have a minimum visible radius. Hollow circles show zero; dashed circles show entirely unknown totals. Map movement changes visible groups but does not change filtered totals.'),
+  node('h3','Source and usage'),node('p','START (National Consortium for the Study of Terrorism and Responses to Terrorism). (2022). Global Terrorism Database, 1970–2020 [data file]. January–June 2021 supplement: globalterrorismdb_2021Jan-June_1222dist.xlsx.'),
+  node('p','Copyright University of Maryland 2022. This local explorer is for non-commercial research and analysis. GTD files and the local database are not included in the public repository. Classification follows GTD.'));
+ const link = node('a','GTD source and methodology ↗');link.href = 'https://www.start.umd.edu/data-tools/GTD';link.target = '_blank';link.rel = 'noopener';$('info-content').append(link);
 }
 async function start() {
- $('results-status').textContent = t('loadingData');
+ $('results-status').textContent = 'Loading dataset…';
  for(const id of ['from','to','from-range','to-range','metric-fatalities','metric-injuries','country-search','reset','fit','prev','next']) $(id).disabled = true;
  try {
   const meta = new URLSearchParams(location.search).get('demo')==='1' ? {mode:'demo'} : await request('/api/meta');
@@ -351,9 +343,9 @@ async function start() {
    $(id).addEventListener('change',()=>{state.page=0;render();});
   }
   $('range-min').textContent=years[0];$('range-max').textContent=years.at(-1);
-  $('range-gap').textContent=mode==='gtd'?t('gapRange'):t('demoRange');
+  $('range-gap').textContent=mode==='gtd'?'1993: no coverage':'Fictional records';
   for(const id of ['from','to']) {
-   $(id).replaceChildren(...years.map(year=>new Option(`${year}${mode==='gtd'&&year===1993?t('noCoverageOption'):mode==='gtd'&&year===2021?t('partialOption'):''}`,String(year))));
+   $(id).replaceChildren(...years.map(year=>new Option(`${year}${mode==='gtd'&&year===1993?' — no coverage':mode==='gtd'&&year===2021?' — Jan–Jun':''}`,String(year))));
    $(id).value = String(state[id]);$(id).disabled = false;
    $(id).addEventListener('change',()=>{
     state[id] = Number($(id).value);
@@ -366,10 +358,10 @@ async function start() {
   $('metric-fatalities').disabled=$('metric-injuries').disabled=false;
   await render();
  } catch(error) {
-  $('dataset-badge').textContent = t('unavailableBadge');
-  $('dataset-title').textContent = t('startServer');
-  $('dataset-description').textContent = t('startHelp');
-  $('results-status').textContent = t('datasetError',{error:error.message});
+  $('dataset-badge').textContent = 'DATA UNAVAILABLE';
+  $('dataset-title').textContent = 'Start the local explorer server';
+  $('dataset-description').textContent = 'The dataset could not be loaded. Follow the local startup instructions in README.';
+  $('results-status').textContent = `Dataset unavailable: ${error.message}`;
   $('results-status').classList.add('error');
  }
 }
@@ -414,7 +406,7 @@ $('fit').addEventListener('click',()=>{
   const version = renderVersion;
   request(`/api/bounds?${queryParams(0)}`).then(result=>{
    if(version===renderVersion && result.south!==null) map.fitBounds([[result.south,result.west],[result.north,result.east]],padding);
-  }).catch(error=>{$('map-data-error').textContent = t('fitError',{error:error.message});$('map-data-error').hidden = false;});
+  }).catch(error=>{$('map-data-error').textContent = `Could not fit events: ${error.message}`;$('map-data-error').hidden = false;});
  }
 });
 for(const id of ['about','methodology']) $(id).addEventListener('click',()=>$('info-dialog').showModal());
@@ -426,60 +418,4 @@ for(const dialog of document.querySelectorAll('dialog')) {
   if(event.clientX<r.left || event.clientX>r.right || event.clientY<r.top || event.clientY>r.bottom) dialog.close();
  });
 }
-function translateDirectText(selector,key) {
- const element=document.querySelector(selector);
- const text=[...element.childNodes].find(child=>child.nodeType===Node.TEXT_NODE&&child.textContent.trim());
- if(text)text.textContent=t(key)+' ';
-}
-function applyStaticTranslations() {
- document.documentElement.lang=language;
- $('legend-title').textContent=t(state.metric==='fatalities'?'knownFatalities':'knownInjuries');
- if(!ready){$('country-count').textContent=t('all');$('page-edition').textContent=t('localEdition');}
-
- $('language').value=language;$('language').setAttribute('aria-label',t('language'));
- document.querySelector('meta[name="description"]').content=t('heading');
- const labels={
-  '#skip-events':'skip','.edition':'edition','#filters-toggle':'filters','#about':'about','h1':'heading',
-  '.stats>div:nth-child(1)>span':'events','.stats>div:nth-child(2)>span':'knownFatalities','.stats>div:nth-child(3)>span':'knownInjuries',
-  '#fit':'fit','.timebar-head .eyebrow':'period','#show-events':'showEvents','#methodology':'methodology',
-  '.section-head .eyebrow':'explore','.section-head h2':'places','#reset':'reset','#metric-fatalities':'fatalities','#metric-injuries':'injuries',
-  '#country-empty':'noCountries','.list-heading .eyebrow':'behind','.list-heading h2':'eventList',
-  'th:nth-child(1)':'date','th:nth-child(2)':'location','th:nth-child(3)':'country','th:nth-child(4)':'fatalities','th:nth-child(5)':'injuries','th:nth-child(6)':'record',
-  '#empty-reset':'reset','#prev':'previous','#next':'next','table caption':'tableCaption'
- };
- for(const [selector,key] of Object.entries(labels))document.querySelector(selector).textContent=t(key);
- translateDirectText('fieldset legend','countries');
- translateDirectText('.year-inputs label:nth-of-type(1)','from');translateDirectText('.year-inputs label:nth-of-type(2)','to');
- translateDirectText('.symbol-legend>span:nth-child(1)','zero');translateDirectText('.symbol-legend>span:nth-child(2)','unknown');
- document.querySelector('.legend>small').replaceChildren(document.createTextNode(t('legendScale')),node('br'),document.createTextNode(t('legendFloor')));
- $('country-search').placeholder=t('search');$('country-search').setAttribute('aria-label',t('search'));
- const aria={'#hide-events':'closeList','#info-dialog .close':'closeInfo','#event-dialog .close':'closeEvent','.explorer':'mapResults','#filter-panel':'eventFilters','.metric-toggle':'measure','#events':'filteredList','.pagination':'listPages'};
- for(const [selector,key] of Object.entries(aria))document.querySelector(selector).setAttribute('aria-label',t(key));
- document.querySelector('label[for="from-range"]').textContent=t('startYear');
- document.querySelector('label[for="to-range"]').textContent=t('endYear');
- for(const [selector,key] of [['.leaflet-control-zoom-in','zoomIn'],['.leaflet-control-zoom-out','zoomOut']]) {
-  const control=document.querySelector(selector);if(control){control.title=t(key);control.setAttribute('aria-label',t(key));}
- }
- if(!ready) {
-  for(const [id,key] of [['dataset-badge','loadingData'],['dataset-title','loadingData'],['dataset-description','loadingData'],['coverage-label','loadingCoverage'],['record-label','loadingRecords'],['selection','loadingSelection'],['unmapped','loadingData'],['fatalities-note','loadingData'],['injuries-note','loadingData'],['map-source','sourceContext']])$(id).textContent=t(key);
- }
-}
-function updateYearOptions() {
- for(const id of ['from','to']) {
-  $(id).replaceChildren(...years.map(year=>new Option(`${year}${mode==='gtd'&&year===1993?t('noCoverageOption'):mode==='gtd'&&year===2021?t('partialOption'):''}`,String(year))));
-  $(id).value=state[id];
- }
- $('range-gap').textContent=t(mode==='gtd'?'gapRange':'demoRange');
-}
-$('language').addEventListener('change',()=>{
- setLanguage($('language').value);try{localStorage.setItem('gtd-language',language);}catch{}
- applyStaticTranslations();
- if(ready) {
-  setDatasetText();updateYearOptions();renderCountries();render();
-  if($('event-dialog').open) {
-   if(activeEvent)openEvent(activeEvent);else if(activeGroup)openGroup(activeGroup.group,activeGroup.params);
-  }
- }
-});
-applyStaticTranslations();
 start();

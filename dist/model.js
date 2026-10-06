@@ -11,10 +11,9 @@ export function summarize(events) {
  };
  return {count:events.length,fatalities:metric('fatalities'),injuries:metric('injuries'),unmapped:events.filter(e=>!hasCoordinates(e)).length};
 }
-export function dateLabel(e, locale='en') {
+export function dateLabel(e) {
  if(!e.month) return String(e.year);
- if(locale==='ru'&&e.day) return new Intl.DateTimeFormat('ru',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}).format(new Date(Date.UTC(e.year,e.month-1,e.day)));
- const month = new Intl.DateTimeFormat(locale,{month:'short',timeZone:'UTC'}).format(new Date(Date.UTC(e.year,e.month-1,1)));
+ const month = new Intl.DateTimeFormat('en',{month:'short',timeZone:'UTC'}).format(new Date(Date.UTC(e.year,e.month-1,1)));
  return e.day ? `${e.day} ${month} ${e.year}` : `${month} ${e.year}`;
 }
 // Cluster nearby points in screen space; keep exact shared locations grouped at every zoom.

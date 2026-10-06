@@ -16,7 +16,7 @@ The current stage is a local GTD explorer using the official workbooks supplied 
 
 ## Language, communication, and workflow
 
-- Use English for instructions, documentation, code identifiers, comments, tests, commit messages, and pull request descriptions. Provide Russian and English interface text, labels, and messages, with a RU/EN switch and Russian as the default. Preserve source data and original names as provided; do not translate or rewrite source records merely to enforce this rule.
+- Use English for all project materials: these instructions, documentation, interface text, labels, messages, code identifiers, comments, tests, commit messages, and pull request descriptions. Preserve source data and original names as provided; do not translate or rewrite source records merely to enforce this rule.
 - Conversation with the user may be in Russian or English. Follow the language of the user's message unless they request otherwise. Explain results, material decisions, and limitations in plain language.
 - Read these instructions and existing documentation before making changes. Preserve the user's work.
 - Complete authorized work independently. Ask for clarification only when a decision materially changes the goal, metric definitions, or publication rights.
