@@ -220,8 +220,8 @@ async function renderMap() {
   for(const group of groups) {
    const metric=group[state.metric],value=metric.value;
    const marker=L.circleMarker([group.lat,group.lng],{
-    radius:bubbleRadius(value,scale),color:'#863747',fillColor:'#863747',
-    fillOpacity:value===null||value===0?0:.23,opacity:.66,weight:1.1,
+    radius:bubbleRadius(value,scale),color:'#71303d',fillColor:'#863747',className:'gtd-bubble',
+    fillOpacity:value===null||value===0?0:.23,opacity:.92,weight:1.6,
     dashArray:value===null?'3 3':null
    }).addTo(layers);
    const tooltip=node('div');
@@ -243,7 +243,7 @@ function reset() {
 function setupMap() {
  try {
   if(!window.L) throw new Error('Map library unavailable');
-  map = L.map('map',{preferCanvas:true,minZoom:1,maxZoom:12,worldCopyJump:true,zoomControl:false}).setView([18,15],mobileLayout.matches?1:2);
+  map = L.map('map',{preferCanvas:false,minZoom:1,maxZoom:12,worldCopyJump:true,zoomControl:false}).setView([18,15],mobileLayout.matches?1:2);
   L.control.zoom({position:'topright'}).addTo(map);
   layers = L.layerGroup().addTo(map);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map)

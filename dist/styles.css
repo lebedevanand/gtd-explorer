@@ -4,3 +4,4 @@
 @media(max-width:380px){.stats strong{font-size:19px}.stats{gap:8px;padding:10px}.stats small{max-width:93px}.range-controls{display:none}.timebar-controls{justify-content:space-between}.year-inputs select{max-width:140px}.year-inputs{width:100%;justify-content:space-between}}
 @media(prefers-reduced-motion:no-preference){.event-section{animation:slide-up .2s ease-out}@keyframes slide-up{from{transform:translateY(20px);opacity:.5}to{transform:translateY(0);opacity:1}}}
 @media(min-width:761px){#event-dialog{margin-right:20px;margin-left:auto;max-width:430px;max-height:calc(100dvh - 100px)}}
+.gtd-bubble{vector-effect:non-scaling-stroke;shape-rendering:geometricPrecision;stroke-linecap:round;stroke-linejoin:round}.gtd-bubble:hover{stroke-opacity:1;stroke-width:2}
