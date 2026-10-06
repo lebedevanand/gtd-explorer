@@ -89,6 +89,9 @@ Project defaults, which the user may change:
 
 ## Design and accessibility
 
+- Use the Atlas layout chosen by the user: map as the main screen, floating collapsible filters, compact summary, bottom time controls, and an event-list drawer.
+- Use the Editorial palette: warm paper surfaces, muted neutral map tiles, and transparent burgundy bubbles. Bubble area encodes the selected known fatality or injury total; keep scale, visibility floor, zero, and unknown semantics explicit.
+
 - The entire interface must be in English. Use a restrained visual presentation and neutral wording, without effects that turn events into a game.
 - Display the source and coverage near the map, and make methodology and data-quality explanations accessible from the interface.
 - Attribute event classification to GTD. Do not present the map as a travel-safety assessment or risk forecast.

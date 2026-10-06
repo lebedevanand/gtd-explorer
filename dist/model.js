@@ -27,3 +27,11 @@ export function clusterEvents(events, project, zoom) {
  }
  return [...cells.values()];
 }
+// Area follows the selected known total. Small positive marks have a visibility floor.
+export function bubbleScale(groups, metric) {
+ const maximum = Math.max(1,...groups.map(g=>g[metric].value ?? 0));
+ return {maximum,factor:58/Math.sqrt(maximum)};
+}
+export function bubbleRadius(value, scale) {
+ return value===null ? 6 : value===0 ? 4 : Math.max(3,Math.sqrt(value)*scale.factor);
+}

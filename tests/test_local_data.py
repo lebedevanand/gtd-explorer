@@ -134,6 +134,11 @@ class QueryTests(unittest.TestCase):
         result = query_map(self.db,{'zoom':['9']})
         self.assertEqual(result['mappedInView'],3)
         group = next(g for g in result['groups'] if g['count']==2)
+        self.assertEqual(group['fatalities'],{'value':7,'unknown':0})
+        self.assertEqual(group['injuries'],{'value':3,'unknown':0})
+        zero = next(g for g in result['groups'] if g['count']==1)
+        self.assertEqual(zero['fatalities'],{'value':0,'unknown':0})
+        self.assertEqual(zero['injuries'],{'value':None,'unknown':1})
         params = {'zoom':['9'],'cell':[str(group['cell'])],'groupX':[str(group['x'])],'groupY':[str(group['y'])]}
         self.assertEqual(query_events(self.db,params)['summary']['count'],2)
 
@@ -146,6 +151,20 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(values[-2:],[170,-170])
         with self.assertRaises(ValueError):
             filters({'from':['2021'],'to':['2020']})
+
+    def test_cluster_totals_keep_partial_and_complete_unknown_values(self):
+        additions = [raw('202000000005',2020,1,20,30,None,6),
+                     raw('202000000006',2020,1,-10,-50,None,None),
+                     raw('202000000007',2020,1,-10,-50,None,None)]
+        for sample in additions:
+            self.db.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', (*normalize(sample,Counter()),'synthetic.xlsx'))
+        groups = query_map(self.db,{'zoom':['9']})['groups']
+        partial = next(g for g in groups if g['count']==3)
+        self.assertEqual(partial['fatalities'],{'value':7,'unknown':1})
+        self.assertEqual(partial['injuries'],{'value':9,'unknown':0})
+        unknown = next(g for g in groups if g['count']==2)
+        self.assertEqual(unknown['fatalities'],{'value':None,'unknown':2})
+        self.assertEqual(unknown['injuries'],{'value':None,'unknown':2})
 
 
 if __name__ == '__main__':

@@ -10,9 +10,12 @@ All project documentation and interface text are in English. Project instruction
 
 ## Features
 
-- World map with zooming, clustering, and selectable events.
+- Map fills the main screen, with floating panels in a warm paper and burgundy palette.
+- Transparent proportional bubbles for known fatalities or injuries, with separate zero and unknown markers.
+- World map with zooming, spatial grouping, and selectable events.
 - Filters for a single year or an inclusive year range and one or more countries.
-- Paginated event list and cluster details, including events that share coordinates.
+- Collapsible country filters, year selectors and range controls, and a paginated event drawer.
+- Group details with separate event counts and casualty totals, including events that share coordinates.
 - Event details with available date precision, location, fatalities, injuries, GTD identifier, and coordinate specificity.
 - Full-selection summaries of event counts and sums of known values, with unknown counts displayed.
 - Explicit coverage warnings for 1993 and the partial 2021 supplement.
@@ -60,6 +63,8 @@ Do not use a generic static server for the real-data mode; it requires the local
 ## Architecture
 
 The frontend uses buildless HTML, CSS, and JavaScript with [Leaflet 1.9.4](https://leafletjs.com/reference-1.9.4.html). SQLite queries run in the local Python server. The browser receives one event page at a time and a bounded set of spatial clusters rather than the full dataset. Map movement changes the visible clusters but leaves filtered totals unchanged.
+
+Bubble area represents the selected sum of known fatalities or injuries for mapped events in each spatial group. The radius uses a square-root scale; positive marks have a 3-pixel minimum radius for visibility. Zero totals are hollow and entirely unknown totals are dashed. Unknown records within partially known groups appear in tooltips and details. The size scale adjusts to the visible map groups and is shown in the legend; compare numerical values rather than circle sizes across different views. The map tiles use a muted warm color treatment, with provider attribution retained.
 
 Leaflet is loaded from a pinned CDN URL with an integrity check. Internet access is required for the map library and OpenStreetMap tiles. If the map fails, the event list and filters remain available. Attribution is displayed on the map. Follow the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/); this app does not implement offline downloads or tile prefetching.
 

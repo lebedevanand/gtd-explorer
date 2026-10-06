@@ -111,6 +111,8 @@ def query_map(db, params):
         rows = db.execute(f'''SELECT CAST(mx * ? / ? AS INTEGER) AS gx,
             CAST(my * ? / ? AS INTEGER) AS gy, COUNT(*) AS count,
             AVG(lat) AS center_lat, AVG(lng) AS center_lng,
+            SUM(fatalities) AS sum_fatalities, COUNT(*) - COUNT(fatalities) AS missing_fatalities,
+            SUM(injuries) AS sum_injuries, COUNT(*) - COUNT(injuries) AS missing_injuries,
             {EVENT_FIELDS}
             FROM events WHERE {where} GROUP BY gx, gy LIMIT 1001''', [scale, cell, scale, cell, *values]).fetchall()
         if len(rows) <= 1000:
@@ -119,9 +121,11 @@ def query_map(db, params):
     groups = []
     for row in rows:
         group = {'lat':row['center_lat'], 'lng':row['center_lng'], 'count':row['count'],
-                 'x':row['gx'], 'y':row['gy'], 'cell':cell, 'zoom':zoom}
+                 'x':row['gx'], 'y':row['gy'], 'cell':cell, 'zoom':zoom,
+                 'fatalities':{'value':row['sum_fatalities'], 'unknown':row['missing_fatalities']},
+                 'injuries':{'value':row['sum_injuries'], 'unknown':row['missing_injuries']}}
         if row['count'] == 1:
-            group['event'] = {key:row[key] for key in row.keys() if key not in ['gx','gy','count','center_lat','center_lng']}
+            group['event'] = {key:row[key] for key in row.keys() if key not in ['gx','gy','count','center_lat','center_lng','sum_fatalities','missing_fatalities','sum_injuries','missing_injuries']}
         groups.append(group)
     return {'groups':groups, 'mappedInView':sum(g['count'] for g in groups), 'cell':cell}
 

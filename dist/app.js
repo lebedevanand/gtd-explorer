@@ -1,10 +1,10 @@
 import {demoEvents} from './demo.js';
-import {filterEvents,summarize,hasCoordinates,dateLabel,clusterEvents} from './model.js';
+import {filterEvents,summarize,hasCoordinates,dateLabel,clusterEvents,bubbleScale,bubbleRadius} from './model.js';
 
 const $ = id => document.getElementById(id);
 const fmt = n => n === null ? 'No data' : n.toLocaleString('en');
 const pageSize = 8;
-const state = {from:0, to:0, countries:new Set(), page:0};
+const state = {from:0, to:0, countries:new Set(), page:0, metric:'fatalities'};
 let mode = 'loading', manifest, countries = [], years = [], ready = false;
 let pageEvents = [], currentSummary, map, layers, renderVersion = 0, mapVersion = 0;
 let resultController, mapController;
@@ -60,6 +60,7 @@ function renderCountries() {
  $('country-empty').hidden = visible.length > 0;
 }
 function updateSelection() {
+ $('from-range').value = state.from;$('to-range').value = state.to;
  $('country-count').textContent = state.countries.size ? `${state.countries.size} selected` : 'All';
  const selected = countries.filter(c=>state.countries.has(String(c.code))).map(c=>c.name).join(', ') || 'All countries';
  $('selection').textContent = `${selected} · ${state.from===state.to ? state.from : `${state.from}–${state.to}`}`;
@@ -117,6 +118,7 @@ async function render() {
  resultController?.abort();mapController?.abort();++mapVersion;
  resultController = new AbortController();
  layers?.clearLayers();
+ $('size-legend').textContent='Loading map…';
  updateSelection();
  $('results-status').textContent = 'Loading filtered results…';
  $('results-status').classList.remove('error');
@@ -157,7 +159,8 @@ async function openGroup(group,params) {
  if(group.event) {openEvent(group.event);return;}
  const dialog = $('event-dialog');const detail = $('event-detail');
  detail.replaceChildren(node('h2',`${fmt(group.count)} ${mode==='demo'?'fictional ':''}events`),
-  node('p','Grouped by map proximity. This is an event count, not a fatality total.'));
+  node('p','Grouped by map proximity. Counts include attackers.'),
+  node('p',`${fmt(group.fatalities.value)} known fatalities · ${fmt(group.fatalities.unknown)} unknown records. ${fmt(group.injuries.value)} known injuries · ${fmt(group.injuries.unknown)} unknown records.`,'group-summary'));
  const list = node('div');const navigation = node('div',undefined,'group-pagination');
  const prev = node('button','← Previous'),next = node('button','Next →'),label = node('span');
  navigation.append(prev,label,next);detail.append(list,navigation);
@@ -200,21 +203,31 @@ async function renderMap() {
  const params = mapParams();
  try {
   let groups;
-  if(mode==='demo') groups = clusterEvents(filterEvents(demoSorted,state),e=>map.project([e.lat,e.lng]),map.getZoom()).map(events=>({events,count:events.length,lat:events.reduce((s,e)=>s+e.lat,0)/events.length,lng:events.reduce((s,e)=>s+e.lng,0)/events.length,event:events.length===1?events[0]:null}));
+  if(mode==='demo') groups = clusterEvents(filterEvents(demoSorted,state),e=>map.project([e.lat,e.lng]),map.getZoom()).map(events=>({events,...summarize(events),lat:events.reduce((s,e)=>s+e.lat,0)/events.length,lng:events.reduce((s,e)=>s+e.lng,0)/events.length,event:events.length===1?events[0]:null}));
   else groups = (await request(`/api/map?${params}`,mapController.signal)).groups;
   if(version!==mapVersion) return;
   layers.clearLayers();$('map-data-error').hidden = true;
+  const scale = bubbleScale(groups,state.metric);
+  $('legend-title').textContent = `Known ${state.metric}`;
+  const legendValues = groups.some(g=>g[state.metric].value>0) ? [.01,.04,.16].map(f=>Math.max(1,Math.round(scale.maximum*f))) : [];
+  $('size-legend').replaceChildren(...[...new Set(legendValues)].map(value=>{
+   const item=node('span');const circle=node('i');
+   const diameter=bubbleRadius(value,scale)*2;
+   circle.style.width=circle.style.height=`${diameter}px`;
+   item.append(circle,node('span',fmt(value)));return item;
+  }));
+  if(!legendValues.length) $('size-legend').textContent=groups.length?'No positive known totals':'No mapped events';
   for(const group of groups) {
-   if(group.count>1) {
-    const icon = L.divIcon({className:'cluster-icon',html:`<span class="cluster-button">${fmt(group.count)}</span>`,iconSize:[44,44],iconAnchor:[22,22]});
-    L.marker([group.lat,group.lng],{icon,title:`${fmt(group.count)} events`,alt:`${fmt(group.count)} events`}).addTo(layers).on('click',()=>openGroup(group,params));
-   } else {
-    const event = group.event;
-    const marker = L.circleMarker([event.lat,event.lng],{radius:event.fatalities===null?7:event.fatalities===0?5:Math.min(18,5+Math.sqrt(event.fatalities)*1.7),
-     color:event.fatalities===null?'#64776b':event.fatalities===0?'#456b52':'#99542e',fillColor:event.fatalities===0?'#fff':'#b86b42',fillOpacity:event.fatalities===null?0:.65,weight:1.5,dashArray:event.fatalities===null?'3 3':null}).addTo(layers);
-    const tooltip = node('span',`${event.city} · ${dateLabel(event)} · ${fmt(event.fatalities)} fatalities`);
-    marker.bindTooltip(tooltip,{direction:'top'}).on('click',()=>openEvent(event));
-   }
+   const metric=group[state.metric],value=metric.value;
+   const marker=L.circleMarker([group.lat,group.lng],{
+    radius:bubbleRadius(value,scale),color:'#863747',fillColor:'#863747',
+    fillOpacity:value===null||value===0?0:.23,opacity:.66,weight:1.1,
+    dashArray:value===null?'3 3':null
+   }).addTo(layers);
+   const tooltip=node('div');
+   tooltip.append(node('strong',group.event?`${group.event.city} · ${dateLabel(group.event)}`:`${fmt(group.count)} grouped events`),
+    node('div',`${fmt(value)} known ${state.metric} · ${fmt(metric.unknown)} unknown records`));
+   marker.bindTooltip(tooltip,{direction:'top'}).on('click',()=>openGroup(group,params));
   }
  } catch(error) {
   if(error.name==='AbortError' || version!==mapVersion) return;
@@ -223,13 +236,15 @@ async function renderMap() {
 }
 function reset() {
  state.from = years[0];state.to = years.at(-1);state.countries.clear();state.page = 0;
+ state.metric='fatalities';updateMetricButtons();
  $('from').value = String(state.from);$('to').value = String(state.to);$('country-search').value = '';
- renderCountries();render();map?.setView([15,15],1);
+ renderCountries();render();map?.setView([18,15],mobileLayout.matches?1:2);
 }
 function setupMap() {
  try {
   if(!window.L) throw new Error('Map library unavailable');
-  map = L.map('map',{preferCanvas:true,minZoom:1,maxZoom:12,worldCopyJump:true}).setView([15,15],1);
+  map = L.map('map',{preferCanvas:true,minZoom:1,maxZoom:12,worldCopyJump:true,zoomControl:false}).setView([18,15],mobileLayout.matches?1:2);
+  L.control.zoom({position:'topright'}).addTo(map);
   layers = L.layerGroup().addTo(map);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map)
    .on('tileerror',()=>{$('map-error').textContent = 'Some map tiles could not load. Filters and the event list remain available.';$('map-error').hidden = false;});
@@ -245,6 +260,7 @@ function setDatasetText() {
   $('coverage-label').textContent = 'Demo coverage: 2014–2023';
   $('record-label').textContent = '24 fictional records · 16 countries';
   $('map-source').textContent = 'Synthetic dataset · Counts include all people in each example';
+  $('map').setAttribute('aria-label','Interactive map of fictional events');
   return;
  }
  document.title = 'GTD Explorer · Local dataset';
@@ -260,14 +276,14 @@ function setDatasetText() {
   node('p',`${fmt(manifest.record_count)} GTD records from the May 2022 main release and the December 2022 January–June 2021 supplement. Original files are kept unchanged, and only fields needed for this explorer are imported.`),
   node('h3','Coverage and missing values'),node('p','The main data covers 1970–2020, excluding 1993. The 2021 supplement covers January–June only; it is not a complete year. Differences in data collection methods affect comparisons over time.'),
   node('p',`${fmt(manifest.quality.missing_coordinates || 0)} records lack coordinates. They remain in summaries and the event list. Blank fatality and injury values stay unknown; totals sum known values and display unknown counts. These measures include attackers.`),
-  node('p','Coordinates may identify settlement or administrative-region centroids. Marker locations are not necessarily exact attack sites. Numbered markers count grouped events, not fatalities. Map movement changes visible clusters but does not change the filtered totals.'),
+  node('p','Coordinates may identify settlement or administrative-region centroids. Marker locations are not necessarily exact attack sites. Bubble area represents the selected sum of known fatalities or injuries, including attackers. Groups aggregate nearby events. The scale adjusts to the map view; use the legend and tooltips to compare values. Small positive totals have a minimum visible radius. Hollow circles show zero; dashed circles show entirely unknown totals. Map movement changes visible groups but does not change filtered totals.'),
   node('h3','Source and usage'),node('p','START (National Consortium for the Study of Terrorism and Responses to Terrorism). (2022). Global Terrorism Database, 1970–2020 [data file]. January–June 2021 supplement: globalterrorismdb_2021Jan-June_1222dist.xlsx.'),
   node('p','Copyright University of Maryland 2022. This local explorer is for non-commercial research and analysis. GTD files and the local database are not included in the public repository. Classification follows GTD.'));
  const link = node('a','GTD source and methodology ↗');link.href = 'https://www.start.umd.edu/data-tools/GTD';link.target = '_blank';link.rel = 'noopener';$('info-content').append(link);
 }
 async function start() {
  $('results-status').textContent = 'Loading dataset…';
- for(const id of ['from','to','country-search','reset','fit','prev','next']) $(id).disabled = true;
+ for(const id of ['from','to','from-range','to-range','metric-fatalities','metric-injuries','country-search','reset','fit','prev','next']) $(id).disabled = true;
  try {
   const meta = new URLSearchParams(location.search).get('demo')==='1' ? {mode:'demo'} : await request('/api/meta');
   mode = meta.mode;
@@ -280,6 +296,21 @@ async function start() {
    countries = [...new Set(demoEvents.map(e=>e.country))].sort().map(name=>({code:name,name,count:demoEvents.filter(e=>e.country===name).length}));
   }
   state.from = years[0];state.to = years.at(-1);
+  for(const id of ['from-range','to-range']) {
+   $(id).min=years[0];$(id).max=years.at(-1);$(id).step=1;
+   $(id).value=state[id==='from-range'?'from':'to'];
+   $(id).disabled=false;
+   $(id).addEventListener('input',()=>{
+    const key=id==='from-range'?'from':'to',other=key==='from'?'to':'from';
+    state[key]=Number($(id).value);
+    if(state.from>state.to)state[other]=state[key];
+    $('from').value=state.from;$('to').value=state.to;
+    updateSelection();
+   });
+   $(id).addEventListener('change',()=>{state.page=0;render();});
+  }
+  $('range-min').textContent=years[0];$('range-max').textContent=years.at(-1);
+  $('range-gap').textContent=mode==='gtd'?'1993: no coverage':'Fictional records';
   for(const id of ['from','to']) {
    $(id).replaceChildren(...years.map(year=>new Option(`${year}${mode==='gtd'&&year===1993?' — no coverage':mode==='gtd'&&year===2021?' — Jan–Jun':''}`,String(year))));
    $(id).value = String(state[id]);$(id).disabled = false;
@@ -290,7 +321,9 @@ async function start() {
    });
   }
   for(const id of ['country-search','reset']) $(id).disabled = false;
-  setDatasetText();renderCountries();setupMap();ready = true;await render();
+  setDatasetText();renderCountries();setupMap();ready = true;
+  $('metric-fatalities').disabled=$('metric-injuries').disabled=false;
+  await render();
  } catch(error) {
   $('dataset-badge').textContent = 'DATA UNAVAILABLE';
   $('dataset-title').textContent = 'Start the local explorer server';
@@ -299,18 +332,47 @@ async function start() {
   $('results-status').classList.add('error');
  }
 }
+function updateMetricButtons() {
+ for(const key of ['fatalities','injuries']) $('metric-'+key).setAttribute('aria-pressed',String(state.metric===key));
+}
+for(const key of ['fatalities','injuries']) $('metric-'+key).addEventListener('click',()=>{
+ state.metric=key;updateMetricButtons();renderMap();
+});
+function setFiltersVisible(visible) {
+ $('filter-panel').hidden=!visible;
+ $('filters-toggle').setAttribute('aria-expanded',String(visible));
+ document.querySelector('.workspace').classList.toggle('filters-collapsed',!visible);
+}
+const mobileLayout=window.matchMedia('(max-width:760px)');
+setFiltersVisible(!mobileLayout.matches);
+mobileLayout.addEventListener('change',()=>setFiltersVisible(!mobileLayout.matches));
+$('filters-toggle').addEventListener('click',()=>setFiltersVisible($('filter-panel').hidden));
+function setListVisible(visible) {
+ $('events').hidden=!visible;$('show-events').setAttribute('aria-expanded',String(visible));
+ if(visible) $('events').focus();else $('show-events').focus();
+}
+$('show-events').addEventListener('click',()=>setListVisible($('events').hidden));
+$('hide-events').addEventListener('click',()=>setListVisible(false));
+$('skip-events').addEventListener('click',event=>{event.preventDefault();setListVisible(true);});
+document.addEventListener('keydown',event=>{
+ if(event.key==='Escape'&&!document.querySelector('dialog[open]')) {
+  if(!$('events').hidden)setListVisible(false);
+  else if(mobileLayout.matches&&!$('filter-panel').hidden){setFiltersVisible(false);$('filters-toggle').focus();}
+ }
+});
 $('country-search').addEventListener('input',renderCountries);
 $('reset').addEventListener('click',reset);$('empty-reset').addEventListener('click',reset);
 $('prev').addEventListener('click',()=>{state.page--;render();});$('next').addEventListener('click',()=>{state.page++;render();});
 $('fit').addEventListener('click',()=>{
  if(!map) return;
+ const padding={paddingTopLeft:[mobileLayout.matches||$('filter-panel').hidden?30:300,120],paddingBottomRight:[55,180],maxZoom:6};
  if(mode==='demo') {
   const points = filterEvents(demoSorted,state).filter(hasCoordinates).map(e=>[e.lat,e.lng]);
-  if(points.length) map.fitBounds(points,{padding:[50,60],maxZoom:6});
+  if(points.length) map.fitBounds(points,padding);
  } else {
   const version = renderVersion;
   request(`/api/bounds?${queryParams(0)}`).then(result=>{
-   if(version===renderVersion && result.south!==null) map.fitBounds([[result.south,result.west],[result.north,result.east]],{padding:[50,60],maxZoom:6});
+   if(version===renderVersion && result.south!==null) map.fitBounds([[result.south,result.west],[result.north,result.east]],padding);
   }).catch(error=>{$('map-data-error').textContent = `Could not fit events: ${error.message}`;$('map-data-error').hidden = false;});
  }
 });
