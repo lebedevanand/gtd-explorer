@@ -1,3 +1,4 @@
+import {addAtlasBasemap} from './basemap.js';
 import {demoEvents} from './demo.js';
 import {filterEvents,summarize,hasCoordinates,dateLabel,clusterEvents,bubbleScale,bubbleRadius,citationLinks} from './model.js';
 
@@ -226,7 +227,7 @@ async function openGroup(group,params) {
 }
 function mapParams() {
  const params = queryParams(0);const bounds = map.getBounds();
- params.set('zoom',map.getZoom());params.set('west',bounds.getWest());params.set('east',bounds.getEast());
+ params.set('zoom',Math.floor(map.getZoom()));params.set('west',bounds.getWest());params.set('east',bounds.getEast());
  params.set('south',Math.max(-90,bounds.getSouth()));params.set('north',Math.min(90,bounds.getNorth()));
  return params;
 }
@@ -276,11 +277,11 @@ function reset() {
 function setupMap() {
  try {
   if(!window.L) throw new Error('Map library unavailable');
-  map = L.map('map',{preferCanvas:false,minZoom:1,maxZoom:12,worldCopyJump:true,zoomControl:false}).setView([18,15],mobileLayout.matches?1:2);
+  const reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  map = L.map('map',{preferCanvas:false,minZoom:1,maxZoom:12,worldCopyJump:true,zoomControl:false,zoomSnap:.5,zoomDelta:.5,wheelPxPerZoomLevel:100,zoomAnimation:!reducedMotion,fadeAnimation:!reducedMotion}).setView([18,15],mobileLayout.matches?1:2);
   L.control.zoom({position:'topright'}).addTo(map);
   layers = L.layerGroup().addTo(map);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map)
-   .on('tileerror',()=>{$('map-error').textContent = 'Some map tiles could not load. Filters and the event list remain available.';$('map-error').hidden = false;});
+  addAtlasBasemap(map,L,message=>{$('map-error').textContent=message;$('map-error').hidden=false;});
   map.on('moveend',renderMap);
  } catch(error) {$('map-error').textContent = 'Map unavailable. Check your connection or explore the event list below.';$('map-error').hidden = false;}
 }
