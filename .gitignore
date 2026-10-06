@@ -17,3 +17,10 @@
 
 # OS files
 .DS_Store
+
+# Local database artifacts and Python bytecode
+*.sqlite
+*.sqlite-*
+*.db
+__pycache__/
+*.pyc

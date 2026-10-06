@@ -12,7 +12,7 @@ Build an interactive map of events from the Global Terrorism Database (GTD), sho
 
 “All events” means all records in the selected GTD release, not every terrorist attack worldwide. Display the source, release, and actual coverage period. Do not claim coverage through the current year without supporting data.
 
-The current stage is an interactive prototype using clearly labeled synthetic records, authorized by the user. Do not download GTD data or publish the site until the user requests those stages. The public GitHub repository is `https://github.com/lebedevanand/gtd-explorer`.
+The current stage is a local GTD explorer using the official workbooks supplied by the user. The public GitHub repository is `https://github.com/lebedevanand/gtd-explorer`; publish code and documentation there, never the GTD files or local database. Public website deployment has not been requested.
 
 ## Language, communication, and workflow
 
@@ -34,7 +34,7 @@ Official references checked on October 6, 2026:
 - [GTD: FAQ](https://www.start.umd.edu/gtd-faqs).
 - [GTD Codebook, August 2021](https://www.start.umd.edu/sites/default/files/2024-10/Codebook.pdf). Check its applicability when using another release.
 
-The GTD FAQ prohibits redistribution of raw data. Before public use, check the applicable terms and whether the intended presentation is permitted. Do not assume that derived files containing event records are automatically permitted for publication.
+The GTD EULA permits non-commercial research and analysis and expressly excludes non-commercial analysis and visualization from its restriction on public display. Raw dataset redistribution remains restricted. A public site must respect these distinctions; do not treat permission for visualization as permission to distribute the database. Commercial use requires an additional agreement.
 
 Until the terms are checked, work locally with a lawfully obtained dataset or clearly labeled synthetic examples. Do not bypass registration or access restrictions.
 
@@ -99,7 +99,7 @@ Project defaults, which the user may change:
 
 ## Technical decisions
 
-The stack has not been selected. At the next stage, propose a minimal architecture based on the actual dataset size, usage terms, and hosting approach. Do not add a server, accounts, or paid services without a concrete need.
+The current architecture is a buildless HTML/CSS/JavaScript frontend with Leaflet 1.9.4 and a loopback-only Python standard-library server backed by a local SQLite database. The server provides paginated event results, full-selection summaries, and bounded map clusters; it never serves source workbooks or database files. Reassess architecture and usage terms before public hosting. Do not add accounts or paid services without a concrete need.
 
 - Check current official documentation, licenses, and limitations before selecting libraries.
 - Do not create a separate page element for every record in a large dataset. Use efficient rendering and measure behavior on the full dataset.
@@ -128,3 +128,11 @@ Validate calculation semantics and user scenarios, not just build success:
 3. Document the schema and architecture; prepare import and the data-quality report.
 4. Implement the map, event details, filters, and summary.
 5. Validate calculations, accessibility, and performance, then prepare the agreed hosting approach.
+
+## Supplied release coverage
+
+- Main workbook: `globalterrorismdb_0522dist.xlsx`, covering 1970–2020.
+- Supplement: `globalterrorismdb_2021Jan-June_1222dist.xlsx`, covering January–June 2021 only.
+- 1993 is a coverage gap; 2021 is a partial year. Keep both visible in the interface.
+- Import output and quality/provenance reports belong in ignored `local-data/`, outside the static `dist/` directory.
+- Use synthetic fixtures for committed tests. Do not commit snapshots of actual event responses.

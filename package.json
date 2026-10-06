@@ -1,8 +1,8 @@
 {
   "name": "gtd-explorer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "GTD Explorer map prototype with synthetic records",
-  "scripts": {"test": "node --test", "start": "python3 -m http.server 4173 --bind 127.0.0.1 --directory dist"}
+  "description": "GTD Explorer with local GTD import and map queries",
+  "scripts": {"test": "node --test", "start": "python3 scripts/serve.py"}
 }

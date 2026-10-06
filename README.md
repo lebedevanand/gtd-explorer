@@ -4,76 +4,110 @@ An interactive map for exploring events recorded in the **Global Terrorism Datab
 
 ## Status
 
-The first interactive prototype is available locally. It uses 24 explicitly fictional events across 16 countries and 2014–2023; these are not GTD records and must not be used for analysis. The GTD import pipeline and deployment have not been implemented. Project instructions are defined in [AGENTS.md](AGENTS.md).
+The local explorer supports official GTD workbooks supplied by the user. It also includes an explicitly separate demonstration mode with fictional fixtures. No GTD dataset or local database is included in this repository, and the website has not been publicly deployed.
 
-## Prototype features
+All project documentation and interface text are in English. Project instructions are in [AGENTS.md](AGENTS.md).
+
+## Features
 
 - World map with zooming, clustering, and selectable events.
 - Filters for a single year or an inclusive year range and one or more countries.
-- Event details with date, location, fatalities, injuries, and GTD identifier.
-- Summaries of event counts and known fatality and injury values.
-- Clear indicators for unknown values, coverage gaps, and events without usable coordinates.
-- Accessible event list, keyboard controls, and mobile layout.
+- Paginated event list and cluster details, including events that share coordinates.
+- Event details with available date precision, location, fatalities, injuries, GTD identifier, and coordinate specificity.
+- Full-selection summaries of event counts and sums of known values, with unknown counts displayed.
+- Explicit coverage warnings for 1993 and the partial 2021 supplement.
+- Records without coordinates remain in the summaries and event list.
+- Keyboard-accessible filters and event details, and responsive mobile layout.
 
-All project documentation and interface text are in English.
+## Run locally
+
+Requires **Python 3.10 or later**. The importer and server use the Python standard library; no package installation is needed.
+
+### 1. Obtain the data
+
+Obtain the files through the [official GTD download form](https://www.start.umd.edu/gtd-download) and follow the applicable terms. Store the original workbooks outside this repository:
+
+- `globalterrorismdb_0522dist.xlsx`: main release, 1970–2020.
+- `globalterrorismdb_2021Jan-June_1222dist.xlsx`: optional January–June 2021 supplement.
+
+### 2. Import
+
+From the repository root, pass the directory containing those workbooks:
+
+```sh
+python3 scripts/import_gtd.py "/path/to/Global Terrorism Database"
+```
+
+The importer streams the necessary XLSX fields, preserves source files unchanged, checks required columns and identifiers, and produces:
+
+- `local-data/gtd.sqlite`: local query database.
+- `local-data/manifest.json`: source checksums, import timestamp, coverage, record counts, and quality report.
+
+Both outputs are ignored by Git and kept outside the static website directory. Import stops on duplicate identifiers, malformed required values, or incompatible schemas. Invalid or missing coordinates are reported and excluded only from the map. Blank fatality and injury values stay unknown. To update the data, rerun the import with the supported official files. A failed validation leaves the previous database intact.
+
+### 3. Start the explorer
+
+```sh
+python3 scripts/serve.py
+```
+
+Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The server binds to the loopback interface and serves only the frontend and limited local query endpoints. Workbooks, the database, and local report files are not served. It does not expose a public service.
+
+Without an imported database, the server uses clearly labeled fictional demonstration data. To explicitly inspect the demo while a database is present, open [http://127.0.0.1:4173/?demo=1](http://127.0.0.1:4173/?demo=1). Real and synthetic records are never combined. Request failures are shown as errors rather than silently switching to demonstration data.
+
+Do not use a generic static server for the real-data mode; it requires the local query server. Avoid opening `index.html` directly, since JavaScript modules require an HTTP server.
+
+## Architecture
+
+The frontend uses buildless HTML, CSS, and JavaScript with [Leaflet 1.9.4](https://leafletjs.com/reference-1.9.4.html). SQLite queries run in the local Python server. The browser receives one event page at a time and a bounded set of spatial clusters rather than the full dataset. Map movement changes the visible clusters but leaves filtered totals unchanged.
+
+Leaflet is loaded from a pinned CDN URL with an integrity check. Internet access is required for the map library and OpenStreetMap tiles. If the map fails, the event list and filters remain available. Attribution is displayed on the map. Follow the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/); this app does not implement offline downloads or tile prefetching.
+
+- `dist/index.html` and `dist/styles.css`: interface and responsive layout.
+- `dist/app.js`: dataset loading, filters, map interactions, and event details.
+- `dist/model.js`: demonstration filtering, summaries, date labels, and grouping.
+- `dist/demo.js`: explicitly fictional fixtures.
+- `scripts/import_gtd.py`: validated XLSX-to-SQLite import.
+- `scripts/serve.py`: local query endpoints and frontend server.
+- `tests/`: synthetic calculation, import, and query tests.
+
+The loopback server is for local use. Public hosting would require a separate architecture and review of how event records are delivered under the GTD terms.
 
 ## Data and methodology
 
-The source will be a lawfully obtained GTD release from **START / University of Maryland**. The selected release and its actual coverage period will be documented after import. “All events” refers to records in that release, not every terrorist attack worldwide.
+Source: **START / University of Maryland**. The supplied main release covers 1970–2020; the supplement covers **January–June 2021 only**. The main database has a gap for **1993**. Neither the missing year nor the missing half of 2021 represents zero events. Historical country codes and labels are preserved, so the country list includes historical entities.
 
-- The primary metric is **Fatalities reported by GTD** (`nkill`). Injuries (`nwound`) are shown separately. Both fields include attackers, as explained in the [GTD codebook](https://www.start.umd.edu/sites/default/files/2024-10/Codebook.pdf).
-- Unknown values are distinct from known zero values. Totals will be labeled as sums of known values, with missingness reported.
-- The main GTD database has a coverage gap for **1993**; this must not be represented as zero events.
-- Map coordinates can represent a settlement centroid rather than the precise attack location.
+“All events” refers to records in the imported release, not every terrorist attack worldwide. The primary metric is **Fatalities reported by GTD** (`nkill`); injuries (`nwound`) are shown separately. Both include attackers. Totals are sums of known values, with missingness reported. Coordinates can represent settlement or administrative-region centroids rather than precise attack sites. Date components of zero remain unknown. The supplied August 2021 codebook documents these definitions; see also the [official methodology](https://www.start.umd.edu/using-gtd).
 
-Classification follows GTD. This project is a tool for exploring historical records, not a travel-safety assessment or risk forecast.
+Classification follows GTD. This is a tool for exploring historical records, not a travel-safety assessment or risk forecast. Changes in source availability and collection methods affect comparisons over time.
 
-## Data usage
+## Data usage and attribution
 
-Raw GTD data is not included in this repository. The [GTD FAQ](https://www.start.umd.edu/gtd-faqs) prohibits redistribution of raw data. Applicable terms must be checked before publishing event records or derived data files.
+The [GTD EULA](https://www.start.umd.edu/gtd-download) permits non-commercial research and analysis and expressly allows non-commercial analysis and visualization under its public-display exception. Redistribution of the underlying data remains restricted, and commercial use requires a separate agreement. Publishing application code does not grant rights to redistribute GTD data.
 
-Obtain data through the [official GTD download page](https://www.start.umd.edu/gtd-download) and follow the terms for the selected release. Synthetic examples, if added, will be explicitly labeled and kept separate from GTD records.
+Do not commit raw workbooks, derived event datasets, local databases, or copies of GTD auxiliary materials. Public delivery of event records must respect the applicable terms and must not be treated as blanket permission to distribute the database.
 
-## Roadmap
+Required main-release attribution:
 
-1. Confirm the dataset release, coverage, and permitted usage.
-2. Select the architecture and document the data schema.
-3. Build a reproducible import pipeline and data-quality report.
-4. Implement the map, filters, event details, summaries, and accessible list.
-5. Validate calculations, accessibility, and performance before deployment.
+> START (National Consortium for the Study of Terrorism and Responses to Terrorism). (2022). Global Terrorism Database, 1970 - 2020 [data file]. https://www.start.umd.edu/gtd
 
-## Development
+Supplement: `globalterrorismdb_2021Jan-June_1222dist.xlsx`, January–June 2021, December 2022 release. Copyright University of Maryland 2022.
 
-The prototype uses buildless HTML, CSS, and JavaScript, with [Leaflet 1.9.4](https://leafletjs.com/reference-1.9.4.html) loaded from a pinned CDN URL and OpenStreetMap tiles. Internet access is required for the map library and tiles; if the map fails, filters and the event list remain available. Attribution is displayed on the map. Tile requests follow the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/); no offline downloads or prefetching are implemented.
+## Validation
 
-### Run locally
-
-Requires Python 3. From the repository root:
+Run Python import/query tests and JavaScript model tests (Node.js 18 or later):
 
 ```sh
-python3 -m http.server 4173 --bind 127.0.0.1 --directory dist
-```
-
-Open http://127.0.0.1:4173. No dependency installation or build step is required. Avoid opening `index.html` directly: JavaScript modules require an HTTP server.
-
-### Verify calculations
-
-Requires Node.js 18 or later:
-
-```sh
+python3 -m unittest discover -s tests -p 'test_*.py'
 node --test
 ```
 
-The tests cover combined filters, inclusive year boundaries, known zero versus unknown totals, missing coordinates, date precision, and shared-location grouping.
+Tests cover combined filters, inclusive year boundaries, zero versus unknown values, totals retaining unmapped events, invalid coordinates and dates, missing values, duplicate-import protection, bounded pagination, viewport filtering, date precision, and cluster membership. All committed test records are synthetic.
 
-### Structure
+On the supplied full dataset, initial local measurements on October 6, 2026 were approximately 150 ms for an all-record summary and 180 ms for world-map clustering. These are database query measurements on the development machine, not public-hosting or cross-device benchmarks. The import took about 26 seconds. Local responsiveness targets are under 1 second for filtered query responses and no more than 1,000 rendered map groups per response; remeasure after material query changes.
 
-- `dist/index.html` and `dist/styles.css`: interface and responsive layout.
-- `dist/app.js`: UI state and map interactions.
-- `dist/model.js`: filtering, summaries, date labels, and grouping.
-- `dist/demo.js`: explicitly fictional fixtures.
-- `tests/model.test.js`: calculation and data semantics checks.
+## Next stages
 
-For the full GTD dataset, the delivery architecture and performance budget must still be selected and measured. This small prototype is not a full-dataset performance validation.
-
-Read [AGENTS.md](AGENTS.md) before contributing. Do not commit GTD exports, derived event datasets, credentials, or local configuration files.
+1. Refine map clustering, exploration controls, and visual design with user feedback.
+2. Extend validation and measure behavior on more devices and representative filter combinations.
+3. Prepare a suitable hosting architecture and data-delivery approach before any public deployment.

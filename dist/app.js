@@ -1,113 +1,326 @@
 import {demoEvents} from './demo.js';
 import {filterEvents,summarize,hasCoordinates,dateLabel,clusterEvents} from './model.js';
+
 const $ = id => document.getElementById(id);
 const fmt = n => n === null ? 'No data' : n.toLocaleString('en');
-const years = [...new Set(demoEvents.map(e=>e.year))].sort((a,b)=>a-b);
-const countryNames = [...new Set(demoEvents.map(e=>e.country))].sort();
-const state = {from:years[0],to:years.at(-1),countries:new Set(),page:0};
-const pageSize=8;
-let filtered=[],map,layers;
-for(const id of ['from','to']) {
- $(id).replaceChildren(...years.map(y=>new Option(String(y),String(y))));
- $(id).value=String(state[id]);
- $(id).addEventListener('change',()=>{
-  state[id]=Number($(id).value);
-  if(state.from>state.to){const other=id==='from'?'to':'from';state[other]=state[id];$(other).value=String(state[other]);}
-  state.page=0;render();
- });
+const pageSize = 8;
+const state = {from:0, to:0, countries:new Set(), page:0};
+let mode = 'loading', manifest, countries = [], years = [], ready = false;
+let pageEvents = [], currentSummary, map, layers, renderVersion = 0, mapVersion = 0;
+let resultController, mapController;
+const demoSorted = [...demoEvents].sort(sortEvents);
+const specificityLabels = {
+ 1:'Coordinates identify the city, village, or town, generally its centroid.',
+ 2:'Coordinates identify the centroid of the smallest known subnational region; settlement coordinates were unavailable.',
+ 3:'The event was outside a settlement. Coordinates identify the centroid of the smallest known subnational region.',
+ 4:'Coordinates identify the center of a first-order administrative region.',
+ 5:'GTD could not identify a first-order region; coordinates are unknown.'
+};
+function sortEvents(a,b) { return b.year-a.year || b.month-a.month || b.day-a.day || b.id.localeCompare(a.id); }
+function node(tag,text,className) {
+ const element = document.createElement(tag);
+ if(text !== undefined) element.textContent = text;
+ if(className) element.className = className;
+ return element;
 }
-function renderCountries(){
- const search=$('country-search').value.trim().toLowerCase();
- const visible=countryNames.filter(c=>c.toLowerCase().includes(search));
+function queryParams(page = state.page) {
+ const params = new URLSearchParams({from:state.from,to:state.to,page,limit:pageSize});
+ for(const country of state.countries) params.append('country',country);
+ return params;
+}
+async function request(path,signal) {
+ const response = await fetch(path,{signal,cache:'no-store'});
+ if(!response.ok) {
+  const data = await response.json().catch(()=>({}));
+  throw new Error(data.error || `Request failed (${response.status})`);
+ }
+ return response.json();
+}
+function demoResults(page=state.page) {
+ const events = filterEvents(demoSorted,state);
+ const pages = Math.max(1,Math.ceil(events.length/pageSize));
+ page = Math.min(page,pages-1);
+ return {events:events.slice(page*pageSize,(page+1)*pageSize),summary:summarize(events),page,pages};
+}
+function renderCountries() {
+ const search = $('country-search').value.trim().toLowerCase();
+ const visible = countries.filter(c=>c.name.toLowerCase().includes(search));
  $('countries').replaceChildren(...visible.map(country=>{
-  const label=document.createElement('label');label.className='country';
-  const input=document.createElement('input');input.type='checkbox';input.checked=state.countries.has(country);
-  input.addEventListener('change',()=>{if(input.checked)state.countries.add(country);else state.countries.delete(country);state.page=0;render(false);});
-  const name=document.createElement('span');name.textContent=country;
-  const count=document.createElement('small');count.textContent=String(demoEvents.filter(e=>e.country===country).length);
-  label.append(input,name,count);return label;
+  const label = node('label',undefined,'country');
+  const input = document.createElement('input');
+  input.type = 'checkbox';input.checked = state.countries.has(String(country.code));
+  input.addEventListener('change',()=>{
+   if(input.checked) state.countries.add(String(country.code));
+   else state.countries.delete(String(country.code));
+   state.page = 0;render();
+  });
+  label.append(input,node('span',country.name),node('small',fmt(country.count)));
+  return label;
  }));
- $('country-empty').hidden=visible.length>0;
- $('country-count').textContent=state.countries.size?`${state.countries.size} selected`:'All';
+ $('country-empty').hidden = visible.length > 0;
 }
-$('country-search').addEventListener('input',renderCountries);
-function reset(){state.from=years[0];state.to=years.at(-1);state.countries.clear();state.page=0;$('from').value=String(state.from);$('to').value=String(state.to);$('country-search').value='';render();if(map)map.setView([15,15],1);}
-$('reset').addEventListener('click',reset);$('empty-reset').addEventListener('click',reset);
-function openEvent(event){
- const body=$('event-detail');body.replaceChildren();
- const badge=document.createElement('span');badge.className='badge';badge.textContent='FICTIONAL EVENT';
- const title=document.createElement('h2');title.textContent=`${event.city}, ${event.country}`;
- const date=document.createElement('p');date.textContent=`${dateLabel(event)} · ${event.id}`;
- const stats=document.createElement('div');stats.className='detail-stats';
- for(const [label,key] of [['Fatalities','fatalities'],['Injuries','injuries']]){const box=document.createElement('div');const value=document.createElement('strong');value.textContent=fmt(event[key]);const caption=document.createElement('span');caption.textContent=label;box.append(value,caption);stats.append(box);}
- const note=document.createElement('p');note.textContent=hasCoordinates(event)?'Illustrative settlement coordinates. This point is not an actual attack location.':'No coordinates available. This record is included in the list and summary.';
- const disclaimer=document.createElement('p');disclaimer.textContent='Synthetic record for testing only. Counts do not describe a real incident.';
- body.append(badge,title,date,stats,note,disclaimer);$('event-dialog').showModal();
-}
-function openGroup(events){
- if(events.length===1){openEvent(events[0]);return;}
- const detail=$('event-detail');detail.replaceChildren();
- const title=document.createElement('h2');title.textContent=`${events.length} fictional events`;
- const note=document.createElement('p');note.textContent='Grouped by map proximity. Select an event to see its details. This number counts events, not fatalities.';
- detail.append(title,note);
- events.forEach(e=>{const p=document.createElement('p');const b=document.createElement('button');b.textContent=`${dateLabel(e)} · ${e.city} · ${e.id}`;b.addEventListener('click',()=>{$('event-dialog').close();openEvent(e);});p.append(b);detail.append(p);});
- $('event-dialog').showModal();
-}
-function renderMap(){
- if(!map)return;
- layers.clearLayers();
- const groups=clusterEvents(filtered,e=>map.project([e.lat,e.lng]),map.getZoom());
- for(const group of groups){
-  if(group.length>1){
-   const lat=group.reduce((s,e)=>s+e.lat,0)/group.length,lng=group.reduce((s,e)=>s+e.lng,0)/group.length;
-   const marker=L.marker([lat,lng],{icon:L.divIcon({className:'cluster-icon',html:`<span class="cluster-button">${group.length}</span>`,iconSize:[34,34],iconAnchor:[17,17]}),title:`${group.length} fictional events`,alt:`${group.length} fictional events`}).addTo(layers);
-   marker.on('click',()=>openGroup(group));
-  }else{
-   const e=group[0];
-   const marker=L.circleMarker([e.lat,e.lng],{radius:e.fatalities===null?7:e.fatalities===0?5:Math.min(18,5+Math.sqrt(e.fatalities)*1.7),color:e.fatalities===null?'#64776b':e.fatalities===0?'#456b52':'#99542e',fillColor:e.fatalities===0?'#ffffff':'#b86b42',fillOpacity:e.fatalities===null?0:.65,weight:1.5,dashArray:e.fatalities===null?'3 3':null}).addTo(layers);
-   marker.bindTooltip(`${e.city} · ${dateLabel(e)} · ${fmt(e.fatalities)} fatalities`,{direction:'top'});
-   marker.on('click',()=>openEvent(e));
-  }
+function updateSelection() {
+ $('country-count').textContent = state.countries.size ? `${state.countries.size} selected` : 'All';
+ const selected = countries.filter(c=>state.countries.has(String(c.code))).map(c=>c.name).join(', ') || 'All countries';
+ $('selection').textContent = `${selected} · ${state.from===state.to ? state.from : `${state.from}–${state.to}`}`;
+ $('selection').title = $('selection').textContent;
+ if(mode==='gtd') {
+  const notes = [];
+  if(state.from<=1993 && state.to>=1993) notes.push('1993: no event-level coverage');
+  if(state.from<=2021 && state.to>=2021) notes.push('2021: January–June only');
+  $('coverage-warning').textContent = notes.join(' · ');
+  $('coverage-warning').hidden = !notes.length;
  }
 }
-function renderList(){
- const pages=Math.max(1,Math.ceil(filtered.length/pageSize));state.page=Math.min(state.page,pages-1);
- $('event-rows').replaceChildren(...filtered.slice(state.page*pageSize,(state.page+1)*pageSize).map(e=>{
-  const tr=document.createElement('tr');
-  const values=[dateLabel(e),e.city,e.country,fmt(e.fatalities),fmt(e.injuries),e.id];
-  values.forEach((value,index)=>{const td=document.createElement('td');if(index===1){const b=document.createElement('button');b.textContent=value;b.setAttribute('aria-label',`View fictional event ${e.id} in ${e.city}`);b.addEventListener('click',()=>openEvent(e));td.append(b);}else td.textContent=value;if(index===3||index===4)td.className='numeric';tr.append(td);});return tr;
+function updateSummary(summary) {
+ currentSummary = summary;
+ const gapOnly = mode==='gtd' && state.from===1993 && state.to===1993;
+ $('total').textContent = gapOnly ? 'No coverage' : fmt(summary.count);
+ $('total').classList.toggle('non-numeric',gapOnly);
+ $('unmapped').textContent = gapOnly ? '1993 records are unavailable' : `${fmt(summary.unmapped)} without coordinates`;
+ for(const key of ['fatalities','injuries']) {
+  $(key).textContent = fmt(summary[key].value);
+  $(key).classList.toggle('non-numeric',summary[key].value===null);
+  $(`${key}-note`).textContent = gapOnly ? 'No event-level coverage' : `Sum of known values · ${fmt(summary[key].unknown)} unknown`;
+ }
+ $('fit').disabled = !map || summary.count===summary.unmapped;
+}
+function renderList(result) {
+ pageEvents = result.events;state.page = result.page;
+ $('event-rows').replaceChildren(...pageEvents.map(event=>{
+  const row = node('tr');
+  const values = [dateLabel(event),event.city,event.country,fmt(event.fatalities),fmt(event.injuries),event.id];
+  values.forEach((value,index)=>{
+   const cell = node('td');
+   if(index===1) {
+    const button = node('button',value);
+    button.setAttribute('aria-label',`View ${mode==='demo'?'fictional ':''}event ${event.id} in ${event.city}`);
+    button.addEventListener('click',()=>openEvent(event));cell.append(button);
+   } else cell.textContent = value;
+   if(index===3 || index===4) cell.className = 'numeric';
+   row.append(cell);
+  });
+  return row;
  }));
- $('empty').hidden=filtered.length!==0;
- $('list-count').textContent=`${filtered.length} fictional events`;
- $('page-label').textContent=filtered.length?`Page ${state.page+1} of ${pages}`:'0 events';
- $('prev').disabled=state.page===0;$('next').disabled=state.page>=pages-1;
+ const gapOnly = mode==='gtd' && state.from===1993 && state.to===1993;
+ $('empty-title').textContent = gapOnly ? 'No event-level coverage for 1993' : 'No events found';
+ $('empty-note').textContent = gapOnly ? 'GTD records for this year are unavailable. This does not mean no attacks occurred.' : 'Try another period or country selection.';
+ $('empty').hidden = result.summary.count!==0;
+ $('list-count').textContent = `${fmt(result.summary.count)} ${mode==='demo'?'fictional ':''}events`;
+ if(gapOnly) $('list-count').textContent = 'No coverage';
+ $('page-label').textContent = gapOnly ? 'Year unavailable' : result.summary.count ? `Page ${fmt(result.page+1)} of ${fmt(result.pages)}` : '0 events';
+ $('prev').disabled = result.page===0;
+ $('next').disabled = result.page>=result.pages-1;
 }
-$('prev').addEventListener('click',()=>{state.page--;renderList();});$('next').addEventListener('click',()=>{state.page++;renderList();});
-function render(updateCountries=true){
- filtered=filterEvents(demoEvents,state).sort((a,b)=>b.year-a.year||b.month-a.month||b.day-a.day);
- const summary=summarize(filtered);
- $('total').textContent=fmt(summary.count);$('unmapped').textContent=`${summary.unmapped} without coordinates`;
- for(const key of ['fatalities','injuries']){$(key).textContent=fmt(summary[key].value);$(`${key}-note`).textContent=`Sum of known values · ${summary[key].unknown} unknown`;}
- const countries=state.countries.size?[...state.countries].sort().join(', '):'All countries';
- $('selection').textContent=`${countries} · ${state.from===state.to?state.from:`${state.from}–${state.to}`}`;
- $('selection').title=$('selection').textContent;
- if(updateCountries)renderCountries();
- $('country-count').textContent=state.countries.size?`${state.countries.size} selected`:'All';
- $('fit').disabled=!map||!filtered.some(hasCoordinates);
- renderList();renderMap();
+async function render() {
+ const version = ++renderVersion;
+ resultController?.abort();mapController?.abort();++mapVersion;
+ resultController = new AbortController();
+ layers?.clearLayers();
+ updateSelection();
+ $('results-status').textContent = 'Loading filtered results…';
+ $('results-status').classList.remove('error');
+ $('event-rows').replaceChildren();$('empty').hidden = true;
+ for(const id of ['total','fatalities','injuries']) $(id).textContent = '…';
+ for(const id of ['prev','next','fit']) $(id).disabled = true;
+ try {
+  const result = mode==='demo' ? demoResults() : await request(`/api/events?${queryParams()}`,resultController.signal);
+  if(version!==renderVersion) return;
+  updateSummary(result.summary);renderList(result);
+  $('results-status').textContent = mode==='demo' ? 'Demonstration dataset · fictional records' : 'Local GTD dataset · filters apply to the full selection';
+  await renderMap();
+ } catch(error) {
+  if(error.name==='AbortError' || version!==renderVersion) return;
+  $('results-status').textContent = `Could not load results: ${error.message}. Change a filter or use Reset to retry.`;
+  $('results-status').classList.add('error');
+  for(const id of ['total','fatalities','injuries']) $(id).textContent = '—';
+  $('list-count').textContent = 'Results unavailable';$('page-label').textContent = '';
+ }
 }
-for(const id of ['about','methodology'])$(id).addEventListener('click',()=>$('info-dialog').showModal());
-for(const dialog of document.querySelectorAll('dialog')){
+function openEvent(event) {
+ const body = $('event-detail');body.replaceChildren();
+ const title = node('h2',`${event.city}, ${event.country}`);
+ const stats = node('div',undefined,'detail-stats');
+ for(const [label,key] of [['Fatalities','fatalities'],['Injuries','injuries']]) {
+  const box = node('div');box.append(node('strong',fmt(event[key])),node('span',label));stats.append(box);
+ }
+ const note = hasCoordinates(event)
+  ? mode==='demo' ? 'Illustrative settlement coordinates, not an actual attack location.' : (specificityLabels[event.specificity] || 'Coordinate precision is not recorded. Do not interpret this point as an exact attack site.')
+  : 'No usable coordinates. This record remains in the event list and summary.';
+ body.append(node('span',mode==='demo'?'FICTIONAL EVENT':'GTD RECORD','badge'),title,
+  node('p',`${dateLabel(event)} · ${event.id}`),stats,node('p',note));
+ if(event.approxdate) body.append(node('p',`Approximate date information from GTD: ${event.approxdate}`));
+ body.append(node('p',mode==='demo'?'Synthetic record for testing only.':'Fatalities and injuries include attackers. Classification and counts follow GTD.'));
+ if(!$('event-dialog').open) $('event-dialog').showModal();
+}
+async function openGroup(group,params) {
+ if(group.event) {openEvent(group.event);return;}
+ const dialog = $('event-dialog');const detail = $('event-detail');
+ detail.replaceChildren(node('h2',`${fmt(group.count)} ${mode==='demo'?'fictional ':''}events`),
+  node('p','Grouped by map proximity. This is an event count, not a fatality total.'));
+ const list = node('div');const navigation = node('div',undefined,'group-pagination');
+ const prev = node('button','← Previous'),next = node('button','Next →'),label = node('span');
+ navigation.append(prev,label,next);detail.append(list,navigation);
+ dialog.showModal();
+ let page = 0;
+ const load = async()=>{
+  list.textContent = 'Loading events…';prev.disabled = next.disabled = true;
+  try {
+   let result;
+   if(mode==='demo') {
+    const pages = Math.ceil(group.events.length/pageSize);
+    result = {events:group.events.slice(page*pageSize,(page+1)*pageSize),pages,page};
+   } else {
+    const query = new URLSearchParams(params);
+    query.set('groupX',group.x);query.set('groupY',group.y);query.set('cell',group.cell);query.set('zoom',group.zoom);query.set('page',page);
+    result = await request(`/api/events?${query}`);
+   }
+   if(!dialog.open || !list.isConnected) return;
+   page = result.page;
+   list.replaceChildren(...result.events.map(event=>{
+    const p = node('p');const b = node('button',`${dateLabel(event)} · ${event.city} · ${event.id}`);
+    b.addEventListener('click',()=>openEvent(event));p.append(b);return p;
+   }));
+   label.textContent = `${fmt(page+1)} / ${fmt(result.pages)}`;
+   prev.disabled = page===0;next.disabled = page>=result.pages-1;
+  } catch(error) { list.textContent = `Could not load this group: ${error.message}`; }
+ };
+ prev.addEventListener('click',()=>{page--;load();});next.addEventListener('click',()=>{page++;load();});
+ await load();
+}
+function mapParams() {
+ const params = queryParams(0);const bounds = map.getBounds();
+ params.set('zoom',map.getZoom());params.set('west',bounds.getWest());params.set('east',bounds.getEast());
+ params.set('south',Math.max(-90,bounds.getSouth()));params.set('north',Math.min(90,bounds.getNorth()));
+ return params;
+}
+async function renderMap() {
+ if(!map || !ready) return;
+ const version = ++mapVersion;mapController?.abort();mapController = new AbortController();
+ const params = mapParams();
+ try {
+  let groups;
+  if(mode==='demo') groups = clusterEvents(filterEvents(demoSorted,state),e=>map.project([e.lat,e.lng]),map.getZoom()).map(events=>({events,count:events.length,lat:events.reduce((s,e)=>s+e.lat,0)/events.length,lng:events.reduce((s,e)=>s+e.lng,0)/events.length,event:events.length===1?events[0]:null}));
+  else groups = (await request(`/api/map?${params}`,mapController.signal)).groups;
+  if(version!==mapVersion) return;
+  layers.clearLayers();$('map-data-error').hidden = true;
+  for(const group of groups) {
+   if(group.count>1) {
+    const icon = L.divIcon({className:'cluster-icon',html:`<span class="cluster-button">${fmt(group.count)}</span>`,iconSize:[44,44],iconAnchor:[22,22]});
+    L.marker([group.lat,group.lng],{icon,title:`${fmt(group.count)} events`,alt:`${fmt(group.count)} events`}).addTo(layers).on('click',()=>openGroup(group,params));
+   } else {
+    const event = group.event;
+    const marker = L.circleMarker([event.lat,event.lng],{radius:event.fatalities===null?7:event.fatalities===0?5:Math.min(18,5+Math.sqrt(event.fatalities)*1.7),
+     color:event.fatalities===null?'#64776b':event.fatalities===0?'#456b52':'#99542e',fillColor:event.fatalities===0?'#fff':'#b86b42',fillOpacity:event.fatalities===null?0:.65,weight:1.5,dashArray:event.fatalities===null?'3 3':null}).addTo(layers);
+    const tooltip = node('span',`${event.city} · ${dateLabel(event)} · ${fmt(event.fatalities)} fatalities`);
+    marker.bindTooltip(tooltip,{direction:'top'}).on('click',()=>openEvent(event));
+   }
+  }
+ } catch(error) {
+  if(error.name==='AbortError' || version!==mapVersion) return;
+  layers.clearLayers();$('map-data-error').textContent = `Could not load map events: ${error.message}. The event list remains available.`;$('map-data-error').hidden = false;
+ }
+}
+function reset() {
+ state.from = years[0];state.to = years.at(-1);state.countries.clear();state.page = 0;
+ $('from').value = String(state.from);$('to').value = String(state.to);$('country-search').value = '';
+ renderCountries();render();map?.setView([15,15],1);
+}
+function setupMap() {
+ try {
+  if(!window.L) throw new Error('Map library unavailable');
+  map = L.map('map',{preferCanvas:true,minZoom:1,maxZoom:12,worldCopyJump:true}).setView([15,15],1);
+  layers = L.layerGroup().addTo(map);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map)
+   .on('tileerror',()=>{$('map-error').textContent = 'Some map tiles could not load. Filters and the event list remain available.';$('map-error').hidden = false;});
+  map.on('moveend',renderMap);
+ } catch(error) {$('map-error').textContent = 'Map unavailable. Check your connection or explore the event list below.';$('map-error').hidden = false;}
+}
+function setDatasetText() {
+ if(mode==='demo') {
+  document.title = 'GTD Explorer · Demonstration';
+  $('dataset-badge').textContent = 'DEMONSTRATION';
+  $('dataset-title').textContent = 'Fictional events. Real interactions.';
+  $('dataset-description').textContent = 'No GTD records in this mode. Locations and counts are synthetic examples.';
+  $('coverage-label').textContent = 'Demo coverage: 2014–2023';
+  $('record-label').textContent = '24 fictional records · 16 countries';
+  $('map-source').textContent = 'Synthetic dataset · Counts include all people in each example';
+  return;
+ }
+ document.title = 'GTD Explorer · Local dataset';
+ $('dataset-badge').textContent = 'LOCAL GTD DATA';
+ $('dataset-title').textContent = 'Historical records. In context.';
+ $('dataset-description').textContent = '1970–2020 + January–June 2021. Includes a coverage gap for 1993.';
+ $('coverage-label').textContent = 'GTD coverage: 1970–Jun 2021';
+ $('record-label').textContent = `${fmt(manifest.record_count)} records · ${manifest.country_count} country codes`;
+ $('map').setAttribute('aria-label','Interactive map of GTD events');
+ $('map-source').textContent = 'Source: START / University of Maryland · Counts include attackers';
+ $('page-edition').textContent = '/ Local dataset';
+ $('info-content').replaceChildren(node('p','SOURCE & CONTEXT','eyebrow'),node('h2','About this dataset'),
+  node('p',`${fmt(manifest.record_count)} GTD records from the May 2022 main release and the December 2022 January–June 2021 supplement. Original files are kept unchanged, and only fields needed for this explorer are imported.`),
+  node('h3','Coverage and missing values'),node('p','The main data covers 1970–2020, excluding 1993. The 2021 supplement covers January–June only; it is not a complete year. Differences in data collection methods affect comparisons over time.'),
+  node('p',`${fmt(manifest.quality.missing_coordinates || 0)} records lack coordinates. They remain in summaries and the event list. Blank fatality and injury values stay unknown; totals sum known values and display unknown counts. These measures include attackers.`),
+  node('p','Coordinates may identify settlement or administrative-region centroids. Marker locations are not necessarily exact attack sites. Numbered markers count grouped events, not fatalities. Map movement changes visible clusters but does not change the filtered totals.'),
+  node('h3','Source and usage'),node('p','START (National Consortium for the Study of Terrorism and Responses to Terrorism). (2022). Global Terrorism Database, 1970–2020 [data file]. January–June 2021 supplement: globalterrorismdb_2021Jan-June_1222dist.xlsx.'),
+  node('p','Copyright University of Maryland 2022. This local explorer is for non-commercial research and analysis. GTD files and the local database are not included in the public repository. Classification follows GTD.'));
+ const link = node('a','GTD source and methodology ↗');link.href = 'https://www.start.umd.edu/data-tools/GTD';link.target = '_blank';link.rel = 'noopener';$('info-content').append(link);
+}
+async function start() {
+ $('results-status').textContent = 'Loading dataset…';
+ for(const id of ['from','to','country-search','reset','fit','prev','next']) $(id).disabled = true;
+ try {
+  const meta = new URLSearchParams(location.search).get('demo')==='1' ? {mode:'demo'} : await request('/api/meta');
+  mode = meta.mode;
+  if(mode==='gtd') {
+   manifest = meta.manifest;countries = meta.countries;
+   const present = Object.keys(manifest.years).map(Number).sort((a,b)=>a-b);
+   years = Array.from({length:present.at(-1)-present[0]+1},(_,i)=>present[0]+i);
+  } else {
+   years = [...new Set(demoEvents.map(e=>e.year))].sort((a,b)=>a-b);
+   countries = [...new Set(demoEvents.map(e=>e.country))].sort().map(name=>({code:name,name,count:demoEvents.filter(e=>e.country===name).length}));
+  }
+  state.from = years[0];state.to = years.at(-1);
+  for(const id of ['from','to']) {
+   $(id).replaceChildren(...years.map(year=>new Option(`${year}${mode==='gtd'&&year===1993?' — no coverage':mode==='gtd'&&year===2021?' — Jan–Jun':''}`,String(year))));
+   $(id).value = String(state[id]);$(id).disabled = false;
+   $(id).addEventListener('change',()=>{
+    state[id] = Number($(id).value);
+    if(state.from>state.to) {const other=id==='from'?'to':'from';state[other]=state[id];$(other).value=String(state[other]);}
+    state.page = 0;render();
+   });
+  }
+  for(const id of ['country-search','reset']) $(id).disabled = false;
+  setDatasetText();renderCountries();setupMap();ready = true;await render();
+ } catch(error) {
+  $('dataset-badge').textContent = 'DATA UNAVAILABLE';
+  $('dataset-title').textContent = 'Start the local explorer server';
+  $('dataset-description').textContent = 'The dataset could not be loaded. Follow the local startup instructions in README.';
+  $('results-status').textContent = `Dataset unavailable: ${error.message}`;
+  $('results-status').classList.add('error');
+ }
+}
+$('country-search').addEventListener('input',renderCountries);
+$('reset').addEventListener('click',reset);$('empty-reset').addEventListener('click',reset);
+$('prev').addEventListener('click',()=>{state.page--;render();});$('next').addEventListener('click',()=>{state.page++;render();});
+$('fit').addEventListener('click',()=>{
+ if(!map) return;
+ if(mode==='demo') {
+  const points = filterEvents(demoSorted,state).filter(hasCoordinates).map(e=>[e.lat,e.lng]);
+  if(points.length) map.fitBounds(points,{padding:[50,60],maxZoom:6});
+ } else {
+  const version = renderVersion;
+  request(`/api/bounds?${queryParams(0)}`).then(result=>{
+   if(version===renderVersion && result.south!==null) map.fitBounds([[result.south,result.west],[result.north,result.east]],{padding:[50,60],maxZoom:6});
+  }).catch(error=>{$('map-data-error').textContent = `Could not fit events: ${error.message}`;$('map-data-error').hidden = false;});
+ }
+});
+for(const id of ['about','methodology']) $(id).addEventListener('click',()=>$('info-dialog').showModal());
+for(const dialog of document.querySelectorAll('dialog')) {
  dialog.querySelector('.close').addEventListener('click',()=>dialog.close());
- dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}});
+ dialog.addEventListener('click',event=>{
+  if(event.target!==dialog) return;
+  const r = dialog.getBoundingClientRect();
+  if(event.clientX<r.left || event.clientX>r.right || event.clientY<r.top || event.clientY>r.bottom) dialog.close();
+ });
 }
-try {
- if(!window.L)throw new Error('Map library unavailable');
- map=L.map('map',{zoomControl:true,minZoom:1,maxZoom:12,worldCopyJump:true}).setView([15,15],1);
- const tiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map);
- tiles.on('tileerror',()=>{$('map-error').textContent='Some map tiles could not load. Filters and the event list remain available.';$('map-error').hidden=false;});
- layers=L.layerGroup().addTo(map);map.on('zoomend',renderMap);
-}catch(error){$('map-error').textContent='Map unavailable. Check your connection or explore the event list below.';$('map-error').hidden=false;}
-$('fit').addEventListener('click',()=>{if(!map)return;const points=filtered.filter(hasCoordinates).map(e=>[e.lat,e.lng]);if(points.length)map.fitBounds(points,{padding:[50,60],maxZoom:6});});
-$('fit').disabled=!map;
-render();
+start();
