@@ -12,7 +12,7 @@ Build an interactive map of events from the Global Terrorism Database (GTD), sho
 
 “All events” means all records in the selected GTD release, not every terrorist attack worldwide. Display the source, release, and actual coverage period. Do not claim coverage through the current year without supporting data.
 
-The current stage is project instructions and agreement on the project foundation. Do not start implementing the application, downloading the database, or publishing the site until the user requests that stage.
+The current stage is an interactive prototype using clearly labeled synthetic records, authorized by the user. Do not download GTD data or publish the site until the user requests those stages. The public GitHub repository is `https://github.com/lebedevanand/gtd-explorer`.
 
 ## Language, communication, and workflow
 

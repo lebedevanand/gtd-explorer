@@ -1,0 +1,28 @@
+// Entirely fictional records for interface development. Not GTD data.
+const rows = [
+ ['United Kingdom','London',51.507,-0.128,2014,4,12,5,18],
+ ['France','Paris',48.857,2.352,2015,7,8,12,34],
+ ['France','Paris',48.857,2.352,2017,0,0,null,9],
+ ['Spain','Madrid',40.417,-3.704,2016,2,15,0,4],
+ ['Germany','Berlin',52.52,13.405,2018,8,6,3,null],
+ ['Türkiye','Ankara',39.933,32.86,2015,5,19,18,42],
+ ['Egypt','Cairo',30.044,31.236,2019,3,9,7,21],
+ ['Nigeria','Abuja',9.076,7.399,2014,6,4,24,31],
+ ['Nigeria','Lagos',6.524,3.379,2017,9,11,8,14],
+ ['Kenya','Nairobi',-1.292,36.822,2020,1,23,4,12],
+ ['Pakistan','Islamabad',33.684,73.048,2016,11,7,16,28],
+ ['Pakistan','Karachi',24.861,67.01,2019,2,0,null,7],
+ ['India','New Delhi',28.614,77.209,2018,10,14,6,17],
+ ['India','Mumbai',19.076,72.878,2021,3,21,11,23],
+ ['Indonesia','Jakarta',-6.209,106.846,2020,8,17,2,8],
+ ['Philippines','Manila',14.6,120.984,2022,4,2,9,null],
+ ['United States','New York',40.713,-74.006,2017,6,16,0,3],
+ ['United States','Los Angeles',34.052,-118.244,2021,9,5,3,6],
+ ['Colombia','Bogotá',4.711,-74.072,2018,12,3,10,22],
+ ['Brazil','São Paulo',-23.55,-46.633,2022,5,18,null,null],
+ ['Australia','Sydney',-33.869,151.209,2023,7,12,1,5],
+ ['Nigeria','Location unknown',null,null,2023,0,0,5,11],
+ ['France','Lyon',45.764,4.835,2023,10,2,2,4],
+ ['Pakistan','Lahore',31.52,74.358,2022,1,8,13,19],
+];
+export const demoEvents = rows.map((r,i)=>({id:`DEMO-${String(i+1).padStart(3,'0')}`,country:r[0],city:r[1],lat:r[2],lng:r[3],year:r[4],month:r[5],day:r[6],fatalities:r[7],injuries:r[8],synthetic:true}));
