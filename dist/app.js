@@ -254,7 +254,7 @@ async function renderMap() {
    const metric=group[state.metric],value=metric.value;
    const marker=L.circleMarker([group.lat,group.lng],{
     radius:bubbleRadius(value,scale),color:'#71303d',fillColor:'#863747',className:'gtd-bubble',
-    fillOpacity:value===null||value===0?0:.23,opacity:.92,weight:1.6,
+    fillOpacity:value===null||value===0?0:.23,opacity:.92,weight:1,
     dashArray:value===null?'3 3':null
    }).addTo(layers);
    const tooltip=node('div');
