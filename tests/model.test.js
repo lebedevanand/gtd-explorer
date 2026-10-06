@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {filterEvents,summarize,hasCoordinates,dateLabel,clusterEvents,bubbleScale,bubbleRadius} from '../dist/model.js';
+import {filterEvents,summarize,hasCoordinates,dateLabel,clusterEvents,bubbleScale,bubbleRadius,citationLinks} from '../dist/model.js';
 const fixtures=[
  {id:'a',year:2014,month:0,day:0,country:'A',fatalities:0,injuries:null,lat:0,lng:0},
  {id:'b',year:2015,month:2,day:0,country:'B',fatalities:null,injuries:4,lat:null,lng:null},
@@ -38,4 +38,9 @@ test('bubble area follows the selected metric and preserves zero versus unknown'
  assert.equal(bubbleRadius(null,scale),6);
  assert.equal(bubbleRadius(0,scale),4);
  assert.equal(bubbleRadius(.001,scale),3);
+});
+test('source citations link only recorded HTTP(S) URLs and deduplicate links',()=>{
+ assert.deepEqual(citationLinks('Example source (https://example.com/report). Also https://example.com/report.'),['https://example.com/report']);
+ assert.deepEqual(citationLinks('javascript:alert(1) <script>example</script>'),[]);
+ assert.deepEqual(citationLinks('Example newspaper, 2000.'),[]);
 });

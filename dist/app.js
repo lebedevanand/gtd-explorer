@@ -1,5 +1,5 @@
 import {demoEvents} from './demo.js';
-import {filterEvents,summarize,hasCoordinates,dateLabel,clusterEvents,bubbleScale,bubbleRadius} from './model.js';
+import {filterEvents,summarize,hasCoordinates,dateLabel,clusterEvents,bubbleScale,bubbleRadius,citationLinks} from './model.js';
 
 const $ = id => document.getElementById(id);
 const fmt = n => n === null ? 'No data' : n.toLocaleString('en');
@@ -7,7 +7,7 @@ const pageSize = 8;
 const state = {from:0, to:0, countries:new Set(), page:0, metric:'fatalities'};
 let mode = 'loading', manifest, countries = [], years = [], ready = false;
 let pageEvents = [], currentSummary, map, layers, renderVersion = 0, mapVersion = 0;
-let resultController, mapController;
+let resultController, mapController, detailController;
 const demoSorted = [...demoEvents].sort(sortEvents);
 const specificityLabels = {
  1:'Coordinates identify the city, village, or town, generally its centroid.',
@@ -139,7 +139,8 @@ async function render() {
   $('list-count').textContent = 'Results unavailable';$('page-label').textContent = '';
  }
 }
-function openEvent(event) {
+async function openEvent(event) {
+ detailController?.abort();detailController=new AbortController();
  const body = $('event-detail');body.replaceChildren();
  const title = node('h2',`${event.city}, ${event.country}`);
  const stats = node('div',undefined,'detail-stats');
@@ -150,10 +151,42 @@ function openEvent(event) {
   ? mode==='demo' ? 'Illustrative settlement coordinates, not an actual attack location.' : (specificityLabels[event.specificity] || 'Coordinate precision is not recorded. Do not interpret this point as an exact attack site.')
   : 'No usable coordinates. This record remains in the event list and summary.';
  body.append(node('span',mode==='demo'?'FICTIONAL EVENT':'GTD RECORD','badge'),title,
-  node('p',`${dateLabel(event)} · ${event.id}`),stats,node('p',note));
+  node('p',`${dateLabel(event)} · ${event.id}`),stats);
+ const description=node('section',undefined,'event-description');
+ description.append(node('h3','What happened'),node('p',mode==='demo'?'Description unavailable for this fictional fixture.':'Loading description…','description-status'));
+ body.append(description,node('p',note));
  if(event.approxdate) body.append(node('p',`Approximate date information from GTD: ${event.approxdate}`));
  body.append(node('p',mode==='demo'?'Synthetic record for testing only.':'Fatalities and injuries include attackers. Classification and counts follow GTD.'));
  if(!$('event-dialog').open) $('event-dialog').showModal();
+ if(mode==='demo')return;
+ try {
+  const detail=await request(`/api/event/${encodeURIComponent(event.id)}`,detailController.signal);
+  if(!description.isConnected||!$('event-dialog').open)return;
+  const value=detail.description;
+  description.replaceChildren(node('h3','What happened'),node('span',value.label,'description-label'));
+  if(value.excerpt&&value.excerpt!==value.text) {
+   const preview=node('p',value.excerpt,'description-excerpt');description.append(preview);
+   const more=node('details',undefined,'full-description'),toggle=node('summary','Read full description');
+   more.append(toggle,node('p',value.text));
+   more.addEventListener('toggle',()=>{preview.hidden=more.open;toggle.textContent=more.open?'Show less':'Read full description';});
+   description.append(more);
+  } else description.append(node('p',value.text,'description-excerpt'));
+  if(value.sources.length) {
+   const sources=node('details',undefined,'event-sources');sources.append(node('summary',`Sources · ${value.sources.length}`));
+   const list=node('ol');
+   value.sources.forEach(citation=>{
+    const item=node('li');item.append(node('p',citation));
+    citationLinks(citation).forEach(url=>{
+     const link=node('a','Open source ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';item.append(link);
+    });list.append(item);
+   });
+   sources.append(list);description.append(sources);
+  } else if(value.kind!=='unavailable')description.append(node('p','No source citation is recorded for this event.','source-note'));
+ } catch(error) {
+  if(error.name==='AbortError'||!description.isConnected)return;
+  description.replaceChildren(node('h3','What happened'),node('p','Could not load the description.','description-status'));
+  const retry=node('button','Retry');retry.addEventListener('click',()=>openEvent(event));description.append(retry);
+ }
 }
 async function openGroup(group,params) {
  if(group.event) {openEvent(group.event);return;}

@@ -15,7 +15,8 @@ import xml.etree.ElementTree as ET
 NS = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
 REQUIRED = {'eventid', 'iyear', 'imonth', 'iday', 'country', 'country_txt', 'city', 'latitude', 'longitude', 'nkill', 'nwound'}
 OPTIONAL = {'specificity', 'approxdate'}
-VERSION = '1.0.0'
+DESCRIPTION_FIELDS = {'summary', 'scite1', 'scite2', 'scite3', 'attacktype1_txt', 'target1'}
+VERSION = '1.1.0'
 
 def shared_strings(archive, wanted):
     values = {}
@@ -52,8 +53,8 @@ def cell_value(cell):
 def column_name(reference):
     return reference.rstrip('0123456789')
 
-def read_workbook(path):
-    # Resolve only strings referenced by required columns, avoiding large narrative fields.
+def read_workbook(path, description_countries=(167,)):
+    # Resolve narratives only for the requested source country codes.
     with ZipFile(path) as archive:
         with archive.open('xl/worksheets/sheet1.xml') as stream:
             context = ET.iterparse(stream, events=('start', 'end'))
@@ -69,6 +70,7 @@ def read_workbook(path):
         if missing:
             raise ValueError(f'{path.name}: missing required columns {sorted(missing)}')
         columns = {col: name for col, name in header.items() if name in REQUIRED | OPTIONAL}
+        description_columns = {col:name for col,name in header.items() if name in DESCRIPTION_FIELDS}
         records, needed = [], set()
         with archive.open('xl/worksheets/sheet1.xml') as stream:
             context = ET.iterparse(stream, events=('start', 'end'))
@@ -85,6 +87,14 @@ def read_workbook(path):
                             record[field] = value
                             if isinstance(value, tuple):
                                 needed.add(value[1])
+                    if record.get('country') is not None and not isinstance(record['country'], tuple) and int(float(record['country'])) in description_countries:
+                        for cell in row:
+                            field = description_columns.get(column_name(cell.get('r')))
+                            if field:
+                                value = cell_value(cell)
+                                record[field] = value
+                                if isinstance(value, tuple):
+                                    needed.add(value[1])
                     if any(value is not None for value in record.values()):
                         if record.get('eventid') is None:
                             raise ValueError(f'{path.name}: row {row.get("r")} is missing eventid')
@@ -178,7 +188,7 @@ def checksum(path):
             digest.update(chunk)
     return digest.hexdigest()
 
-def import_files(files, output):
+def import_files(files, output, description_countries=(167,)):
     started = time.perf_counter()
     output.mkdir(parents=True, exist_ok=True)
     temp = output / 'gtd.importing.sqlite'
@@ -190,18 +200,26 @@ def import_files(files, output):
         lat REAL, lng REAL, fatalities REAL, injuries REAL, specificity INTEGER, approxdate TEXT,
         mx REAL, my REAL, source_file TEXT NOT NULL)''')
     db.execute('CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    db.execute('''CREATE TABLE event_descriptions (
+        event_id TEXT PRIMARY KEY REFERENCES events(id), summary TEXT,
+        attack_type TEXT, target TEXT, sources TEXT NOT NULL)''')
     sources = []
     try:
         for path in files:
             issues = Counter()
             count, years, months = 0, Counter(), Counter()
             print(f'Reading {path.name}...', flush=True)
-            for raw in read_workbook(path):
+            for raw in read_workbook(path, description_countries):
                 record = normalize(raw, issues)
                 try:
                     db.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', (*record, path.name))
                 except sqlite3.IntegrityError:
                     raise ValueError(f'Duplicate event identifier: {record[0]} (import stopped)')
+                if record[4] in description_countries:
+                    text = lambda key: str(raw.get(key) or '').strip() or None
+                    citations = list(dict.fromkeys(text(key) for key in ['scite1','scite2','scite3'] if text(key)))
+                    db.execute('INSERT INTO event_descriptions VALUES (?,?,?,?,?)',
+                               (record[0],text('summary'),text('attacktype1_txt'),text('target1'),json.dumps(citations)))
                 count += 1
                 years[record[1]] += 1
                 months[record[2]] += 1
@@ -221,6 +239,9 @@ def import_files(files, output):
                     'coverage_gaps':[1993] if min(year_counts) <= 1993 <= max(year_counts) else [],
                     'partial_years':{'2021':'January–June only'} if 2021 in year_counts else {},
                     'country_count':db.execute('SELECT COUNT(DISTINCT country_code) FROM events').fetchone()[0],
+                    'descriptions':{'country_codes':list(description_countries),
+                        'records':db.execute('SELECT COUNT(*) FROM event_descriptions').fetchone()[0],
+                        'with_summary':db.execute('SELECT COUNT(*) FROM event_descriptions WHERE summary IS NOT NULL').fetchone()[0]},
                     'quality':dict(sum((Counter(s['quality']) for s in sources), Counter())),
                     'duration_seconds':round(time.perf_counter()-started,2)}
         db.execute('INSERT INTO metadata VALUES (?,?)', ('manifest',json.dumps(manifest)))
@@ -239,13 +260,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source_directory', type=Path)
     parser.add_argument('--output', type=Path, default=Path(__file__).resolve().parents[1] / 'local-data')
+    parser.add_argument('--description-country', type=int, action='append',
+                        help='GTD country code to import descriptions for; repeat for multiple countries. Default: 167 (Russia).')
     args = parser.parse_args()
     filenames = ['globalterrorismdb_0522dist.xlsx', 'globalterrorismdb_2021Jan-June_1222dist.xlsx']
     files = [args.source_directory / name for name in filenames if (args.source_directory / name).exists()]
     if not files:
         parser.error('No supported GTD workbooks found in the source directory')
     try:
-        import_files(files, args.output)
+        import_files(files, args.output, tuple(dict.fromkeys(args.description_country or [167])))
     except (ValueError, ET.ParseError) as error:
         parser.exit(1, f'Import failed: {error}\n')
 

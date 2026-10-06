@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 import sqlite3
 from urllib.parse import parse_qs, unquote, urlsplit
+from descriptions import make_description
 
 ROOT = Path(__file__).resolve().parents[1]
 EVENT_FIELDS = 'id, year, month, day, country_code AS countryCode, country, city, lat, lng, fatalities, injuries, specificity, approxdate'
@@ -130,6 +131,24 @@ def query_map(db, params):
     return {'groups':groups, 'mappedInView':sum(g['count'] for g in groups), 'cell':cell}
 
 
+def query_event(db, event_id):
+    row = db.execute(f'SELECT {EVENT_FIELDS} FROM events WHERE id = ?', [event_id]).fetchone()
+    if not row:
+        return None
+    event = dict(row)
+    available = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='event_descriptions'").fetchone()
+    if not available:
+        description = {'kind':'unavailable','label':'Description unavailable',
+                       'text':'Re-run the local import to load descriptions.','sources':[]}
+    else:
+        record = db.execute('SELECT * FROM event_descriptions WHERE event_id = ?', [event_id]).fetchone()
+        description = make_description(event, record) if record else {
+            'kind':'unavailable','label':'Description unavailable',
+            'text':'Descriptions have not yet been imported for this country.','sources':[]}
+    event['description'] = description
+    return event
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, database, **kwargs):
         self.database = database
@@ -201,11 +220,10 @@ class Handler(SimpleHTTPRequestHandler):
                 data = query_map(db, params)
             elif path.startswith('/api/event/'):
                 event_id = unquote(path.removeprefix('/api/event/'))
-                row = db.execute(f'SELECT {EVENT_FIELDS} FROM events WHERE id = ?', [event_id]).fetchone()
-                if not row:
+                data = query_event(db, event_id)
+                if data is None:
                     self.json_response({'error':'Event not found'}, 404)
                     return
-                data = dict(row)
             else:
                 self.json_response({'error':'Unknown endpoint'}, 404)
                 return

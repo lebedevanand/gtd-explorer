@@ -139,3 +139,4 @@ Validate calculation semantics and user scenarios, not just build success:
 - 1993 is a coverage gap; 2021 is a partial year. Keep both visible in the interface.
 - Import output and quality/provenance reports belong in ignored `local-data/`, outside the static `dist/` directory.
 - Use synthetic fixtures for committed tests. Do not commit snapshots of actual event responses.
+- Import event descriptions for Russia (GTD country code 167) first. Store summaries and source citations separately in the ignored local database; load them only in event details. Clearly label source descriptions versus deterministic descriptions based on fields. Do not infer causes, perpetrators, or facts absent from the imported record, and do not guess source URLs.

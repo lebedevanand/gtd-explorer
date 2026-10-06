@@ -35,3 +35,15 @@ export function bubbleScale(groups, metric) {
 export function bubbleRadius(value, scale) {
  return value===null ? 6 : value===0 ? 4 : Math.max(3,Math.sqrt(value)*scale.factor);
 }
+// Keep citations as text; only explicitly recorded HTTP(S) URLs become links.
+export function citationLinks(citation) {
+ const matches=citation.match(/https?:\/\/[^\s<>"']+/g)||[];
+ const links=[];
+ for(const match of matches) {
+  try {
+   const url=new URL(match.replace(/[.,;:)\]]+$/,''));
+   if(['http:','https:'].includes(url.protocol)&&url.hostname)links.push(url.href);
+  } catch {}
+ }
+ return [...new Set(links)];
+}

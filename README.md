@@ -17,6 +17,7 @@ All project documentation and interface text are in English. Project instruction
 - Collapsible country filters, year selectors and range controls, and a paginated event drawer.
 - Group details with separate event counts and casualty totals, including events that share coordinates.
 - Event details with available date precision, location, fatalities, injuries, GTD identifier, and coordinate specificity.
+- Russia event cards include a short GTD description, expandable original text, and recorded source citations. Missing summaries use clearly labeled descriptions assembled from known GTD fields.
 - Full-selection summaries of event counts and sums of known values, with unknown counts displayed.
 - Explicit coverage warnings for 1993 and the partial 2021 supplement.
 - Records without coordinates remain in the summaries and event list.
@@ -48,6 +49,16 @@ The importer streams the necessary XLSX fields, preserves source files unchanged
 
 Both outputs are ignored by Git and kept outside the static website directory. Import stops on duplicate identifiers, malformed required values, or incompatible schemas. Invalid or missing coordinates are reported and excluded only from the map. Blank fatality and injury values stay unknown. To update the data, rerun the import with the supported official files. A failed validation leaves the previous database intact.
 
+Descriptions are imported for GTD country code 167 (Russia) by default. Re-run the import after updating from an earlier app version. Summary text and citations are kept in a separate local table and delivered only when an event card is opened, never with map clusters or list pages. Blank summaries use a deterministic description of the available attack type, target, location, and reported counts; missing counts are never converted to zero. The interface labels original GTD text and descriptions based on fields separately. No external research or AI-generated event claims are added.
+
+To extend description coverage later, repeat the country-code option; explicit codes replace the default:
+
+```sh
+python3 scripts/import_gtd.py "/path/to/Global Terrorism Database" --description-country 167 --description-country 217
+```
+
+Source citations are preserved as bibliographic text. Only HTTP(S) URLs present in a citation become links; no source URLs are guessed. Description excerpts are shortened for display, with the full imported text available to expand.
+
 ### 3. Start the explorer
 
 ```sh
@@ -74,6 +85,7 @@ Leaflet is loaded from a pinned CDN URL with an integrity check. Internet access
 - `dist/demo.js`: explicitly fictional fixtures.
 - `scripts/import_gtd.py`: validated XLSX-to-SQLite import.
 - `scripts/serve.py`: local query endpoints and frontend server.
+- `scripts/descriptions.py`: source-text excerpts and factual structured-field fallbacks.
 - `tests/`: synthetic calculation, import, and query tests.
 
 The loopback server is for local use. Public hosting would require a separate architecture and review of how event records are delivered under the GTD terms.
