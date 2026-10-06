@@ -71,6 +71,8 @@ Without an imported database, the server uses clearly labeled fictional demonstr
 
 Do not use a generic static server for the real-data mode; it requires the local query server. Avoid opening `index.html` directly, since JavaScript modules require an HTTP server.
 
+The interface supports Russian and English. Switch languages with **RU / EN** in the header; your preference is saved in this browser. Country search accepts both source English names and Russian display names. Filters and country identifiers are preserved when switching languages. Original GTD summaries, citations, settlement names, and target descriptions stay in their source language; original summaries are labeled as English. Descriptions assembled from structured fields use the selected interface language.
+
 ## Architecture
 
 The frontend uses buildless HTML, CSS, and JavaScript with [Leaflet 1.9.4](https://leafletjs.com/reference-1.9.4.html). SQLite queries run in the local Python server. The browser receives one event page at a time and a bounded set of spatial clusters rather than the full dataset. Map movement changes the visible clusters but leaves filtered totals unchanged.
@@ -81,6 +83,7 @@ Leaflet is loaded from a pinned CDN URL with an integrity check. Internet access
 
 - `dist/index.html` and `dist/styles.css`: interface and responsive layout.
 - `dist/app.js`: dataset loading, filters, map interactions, and event details.
+- `dist/i18n.js`: interface translations and separate country display names.
 - `dist/model.js`: demonstration filtering, summaries, date labels, and grouping.
 - `dist/demo.js`: explicitly fictional fixtures.
 - `scripts/import_gtd.py`: validated XLSX-to-SQLite import.

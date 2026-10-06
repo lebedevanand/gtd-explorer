@@ -138,12 +138,12 @@ def query_event(db, event_id):
     event = dict(row)
     available = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='event_descriptions'").fetchone()
     if not available:
-        description = {'kind':'unavailable','label':'Description unavailable',
+        description = {'kind':'unavailable','reason':'not-imported','label':'Description unavailable',
                        'text':'Re-run the local import to load descriptions.','sources':[]}
     else:
         record = db.execute('SELECT * FROM event_descriptions WHERE event_id = ?', [event_id]).fetchone()
         description = make_description(event, record) if record else {
-            'kind':'unavailable','label':'Description unavailable',
+            'kind':'unavailable','reason':'country','label':'Description unavailable',
             'text':'Descriptions have not yet been imported for this country.','sources':[]}
     event['description'] = description
     return event

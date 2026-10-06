@@ -39,4 +39,5 @@ def make_description(event, record):
         facts.append(f"{label} reported by GTD: {value:g}." if value is not None else f"{label} are not recorded.")
     text = ' '.join(facts)
     return {'kind':'fields', 'label':'Description based on GTD fields', 'text':text,
-            'excerpt':excerpt(text), 'sources':sources}
+            'excerpt':excerpt(text), 'sources':sources,
+            'fields':{'attack_type':attack,'target':target}}

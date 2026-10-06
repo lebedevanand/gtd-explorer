@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Explore GTD events by year and country with a local dataset."><title>GTD Explorer</title>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Explore GTD events by year and country with a local dataset."><title>GTD Explorer</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""><link rel="stylesheet" href="styles.css"></head>
 <body><a class="skip" href="#events" id="skip-events">Skip to event list</a>
-<header class="topbar"><a class="brand" href="./"><span class="brand-icon" aria-hidden="true">◎</span> GTD <strong>Explorer</strong></a><span class="edition">GLOBAL TERRORISM DATABASE</span><div class="header-actions"><button id="filters-toggle" aria-expanded="true" aria-controls="filter-panel">Filters</button><button class="text-button" id="about">About the data ↗</button></div></header>
+<header class="topbar"><a class="brand" href="./"><span class="brand-icon" aria-hidden="true">◎</span> GTD <strong>Explorer</strong></a><span class="edition">GLOBAL TERRORISM DATABASE</span><div class="header-actions"><select id="language" class="language-control" aria-label="Language"><option value="ru">RU</option><option value="en">EN</option></select><button id="filters-toggle" aria-expanded="true" aria-controls="filter-panel">Filters</button><button class="text-button" id="about">About the data ↗</button></div></header>
 <main class="workspace"><h1 class="sr-only">Explore the Global Terrorism Database</h1>
 <section class="explorer" aria-label="Map and results">
 <div class="map-wrap"><div id="map" aria-label="Interactive map of events"></div><p id="map-error" class="map-error" role="status" hidden></p><p id="map-data-error" class="map-error" role="status" hidden></p></div>
@@ -22,5 +22,5 @@
 <span id="page-edition" class="sr-only">Local explorer</span>
 <dialog id="info-dialog"><button class="close" aria-label="Close information">×</button><div id="info-content"><p class="eyebrow">SOURCE & CONTEXT</p><h2>Demonstration dataset</h2><p>All 24 events are fictional fixtures, separate from GTD records.</p><p>Bubble area represents the selected known total. Groups aggregate nearby events. The scale adjusts to the map view; compare values using the legend and tooltip. Small positive values have a minimum visible radius. Hollow markers identify zero totals; dashed markers identify entirely unknown totals.</p><p>Records without coordinates remain in summaries and the event list. Map movement does not change filtered totals.</p></div></dialog>
 <dialog id="event-dialog"><button class="close" aria-label="Close event details">×</button><div id="event-detail"></div></dialog>
-<noscript><p class="map-error">Enable JavaScript to use filters and the event list.</p></noscript>
+<noscript><p class="map-error">Включите JavaScript для работы фильтров и списка событий. / Enable JavaScript to use filters and the event list.</p></noscript>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script><script type="module" src="app.js"></script></body></html>
